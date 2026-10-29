@@ -1,0 +1,1 @@
+{"prompt":"Pick the best Doom action. Reply with its bracketed number.\nState:\nStance: aggressive\nHealth 90, armor 0, ammo 40, attack_ready yes.\nOn screen: Zombieman bearing +2 dist 300 target_aligned yes.\nCandidates:\n1) turn left to face the monster [turn_left]\n2) fire pistol now [attack]\n3) strafe right [move_right]\nAnswer:","temperature":0,"n_predict":3}

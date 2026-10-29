@@ -53,9 +53,10 @@ Answer:"""
             pickup_line = f"Nearby pickup: {pk.name} bearing {bearing_deg(pk):+.0f} dist {pk.dist:.0f}.\n"
         return target_line, nearest_line, pickup_line, nearest
 
-    def build_prompt(self, ws, goal: dict, h: Decision | None = None) -> str:
+    def build_prompt(self, ws, goal: dict, h: Decision | None = None,
+                     order: list | None = None) -> str:
         h = h or self.fallback.decide(ws, goal)
-        ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
+        ranked = order or sorted(h.probs, key=lambda a: -h.probs[a])[:3]
         self._last_ranked = ranked
         target_line, nearest_line, pickup_line, _ = self._state_lines(ws)
         desc = {

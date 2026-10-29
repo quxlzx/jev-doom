@@ -33,20 +33,23 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
         # expert proposal
         h = spine.decide(ws, goal)
         ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
+        # shuffle candidate order: the model must READ the candidates,
+        # not parrot "1" because the expert's pick is always listed first
+        shuffled = ranked[:]
+        rng.shuffle(shuffled)
         # epsilon-greedy over candidates: explore 2nd/3rd options sometimes
         if epsilon > 0 and rng.random() < epsilon:
-            pick = rng.randrange(len(ranked))
-            action = ranked[pick]
+            action = rng.choice(shuffled)
         else:
-            pick = 0
             action = h.action
+        pick = shuffled.index(action)
         # hold must match the ACTUAL action (turns need windup+rate)
         from spine import bearing_deg
         t = ws.nearest_visible_monster() or min(ws.monsters, key=lambda m: m.dist, default=None)
         hold = min(40, 8 + int(abs(bearing_deg(t)) / 3.5)) if (action.startswith("turn") and t) else 2
         # build the SAME prompt the ModelSpine would show
         if model_spine is not None:
-            prompt = model_spine.build_prompt(ws, goal, h)
+            prompt = model_spine.build_prompt(ws, goal, h, order=shuffled)
         if prompt is not None:
             samples.append((prompt, pick + 1, {"stance": goal.get("stance")}))
         r, over = env.step(action, tics=hold)

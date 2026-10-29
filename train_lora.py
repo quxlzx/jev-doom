@@ -12,10 +12,11 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForSeq2Seq
 from peft import LoraConfig, get_peft_model, TaskType
 
+# memory plan: run with CUDA_VISIBLE_DEVICES=2 (RTX 3060 12GB)
 CORPUS = r"D:\doomsrv\corpus2.jsonl"
 BASE = r"D:\doomsrv\Qwen3-1.7B-hf"
 OUT = r"D:\doomsrv\spine-lora"
-MAX_LEN = 420
+MAX_LEN = 384
 SUBSAMPLE = 40000
 SEED = 13
 
@@ -48,11 +49,16 @@ def main():
             rows.append({"prompt": d["prompt"], "completion": d["completion"],
                          "w": d.get("meta", {}).get("weight", 1.0)})
     # weight-aware subsample: winning-episode samples are 2x more likely kept
-    pool = []
-    for r in rows:
-        pool.extend([r] * (2 if r["w"] >= 1.0 else 1))
-    random.shuffle(pool)
-    rows = pool[:SUBSAMPLE]
+    # balanced: ~40% deviation labels (2/3), 60% top picks
+    dev = [r for r in rows if r["completion"] != "[1]"]
+    top = [r for r in rows if r["completion"] == "[1]"]
+    n_dev = min(len(dev), int(SUBSAMPLE * 0.4))
+    n_top = SUBSAMPLE - n_dev * (len(dev) // max(n_dev, 1) or 1)
+    dev = dev * (n_dev // max(len(dev), 1) + 1)
+    random.shuffle(dev)
+    random.shuffle(top)
+    rows = top[:SUBSAMPLE - n_dev] + dev[:n_dev]
+    print(f"balanced: dev={n_dev} top={len(rows)-n_dev}")
     print(f"train samples: {len(rows)}")
 
     tok = AutoTokenizer.from_pretrained(BASE)
@@ -60,7 +66,8 @@ def main():
         tok.pad_token = tok.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
-        BASE, torch_dtype=torch.bfloat16, device_map={"": 0})
+        BASE, torch_dtype=torch.bfloat16, device_map={"": 0},
+        attn_implementation="sdpa")
     lora = LoraConfig(
         task_type=TaskType.CAUSAL_LM, r=16, lora_alpha=32, lora_dropout=0.05,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
@@ -74,8 +81,8 @@ def main():
     args = TrainingArguments(
         output_dir=OUT,
         num_train_epochs=1.5,
-        per_device_train_batch_size=16,
-        gradient_accumulation_steps=2,
+        per_device_train_batch_size=6,
+        gradient_accumulation_steps=6,
         learning_rate=1e-4,
         lr_scheduler_type="cosine",
         warmup_steps=100,

@@ -19,7 +19,7 @@ from spine_model import ModelSpine
 from brain import RuleBrain
 
 
-def run_one(env, spine, brain, rng, model_spine=None):
+def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
     """One episode; returns list of (prompt, label_idx, meta) + stats."""
     env.reset()
     brain = brain()
@@ -32,16 +32,24 @@ def run_one(env, spine, brain, rng, model_spine=None):
             break
         # expert proposal
         h = spine.decide(ws, goal)
+        ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
+        # epsilon-greedy over candidates: explore 2nd/3rd options sometimes
+        if epsilon > 0 and rng.random() < epsilon:
+            pick = rng.randrange(len(ranked))
+            action = ranked[pick]
+        else:
+            pick = 0
+            action = h.action
+        # hold must match the ACTUAL action (turns need windup+rate)
+        from spine import bearing_deg
+        t = ws.nearest_visible_monster() or min(ws.monsters, key=lambda m: m.dist, default=None)
+        hold = min(40, 8 + int(abs(bearing_deg(t)) / 3.5)) if (action.startswith("turn") and t) else 2
         # build the SAME prompt the ModelSpine would show
         if model_spine is not None:
             prompt = model_spine.build_prompt(ws, goal, h)
-        else:
-            prompt = None
-        ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
-        label = ranked.index(h.action) if h.action in ranked else 0
         if prompt is not None:
-            samples.append((prompt, label + 1, {"stance": goal.get("stance")}))
-        r, over = env.step(h.action, tics=h.hold_tics)
+            samples.append((prompt, pick + 1, {"stance": goal.get("stance")}))
+        r, over = env.step(action, tics=hold)
         if over:
             break
     from env import GV
@@ -59,6 +67,7 @@ def main():
     p.add_argument("--out", default="corpus.jsonl")
     p.add_argument("--skill", type=int, default=4)
     p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--epsilon", type=float, default=0.3)
     a = p.parse_args()
     rng = random.Random(a.seed)
     env = DoomEnv(skill=a.skill)
@@ -67,10 +76,13 @@ def main():
     n_kept = 0
     with open(a.out, "w") as f:
         for ep in range(a.episodes):
-            samples, kills, health = run_one(env, spine, RuleBrain, rng, ms)
+            samples, kills, health = run_one(env, spine, RuleBrain, rng, ms, a.epsilon)
             # trajectory quality gate: keep episodes that engaged
-            weight = 1.0 if kills > 0 else 0.25
             for prompt, label, meta in samples:
+                # outcome filter: keep exploratory picks only from winning episodes
+                if kills == 0 and label != 1:
+                    continue
+                weight = 1.0 if kills > 0 else 0.25
                 f.write(json.dumps({"prompt": prompt,
                                     "completion": f"[{label}]",
                                     "meta": {**meta, "ep": ep, "kills": kills,

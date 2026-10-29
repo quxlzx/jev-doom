@@ -17,8 +17,10 @@ from spine import Decision, ReflexSpine, bearing_deg
 
 
 class ModelSpine:
-    def __init__(self, base_url: str = "http://127.0.0.1:8181", timeout: float = 5.0):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: str | None = None, timeout: float = 5.0):
+        import os
+        base = base_url or os.environ.get("JEVDOOM_SPINE_URL", "http://127.0.0.1:8181")
+        self.base_url = base.rstrip("/")
         self.timeout = timeout
         self.fallback = ReflexSpine()
 

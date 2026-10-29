@@ -54,6 +54,7 @@ class LLMBrain:
             "model": self.model,
             "temperature": 0.2,
             "max_tokens": 120,
+            "chat_template_kwargs": {"enable_thinking": False},
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content":

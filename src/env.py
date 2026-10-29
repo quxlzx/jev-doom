@@ -76,7 +76,7 @@ class DoomEnv:
         for name in ACTIONS:
             self.g.add_available_button(_BUTTONS[name])
         self.g.clear_available_game_variables()
-        self._gv = [GV.HEALTH, GV.ARMOR, GV.AMMO0, GV.KILLCOUNT, GV.DEATHCOUNT,
+        self._gv = [GV.HEALTH, GV.ARMOR, GV.SELECTED_WEAPON_AMMO, GV.KILLCOUNT, GV.DEATHCOUNT,
                     GV.HITS_TAKEN, GV.ANGLE, GV.POSITION_X, GV.POSITION_Y, GV.ATTACK_READY]
         for v in self._gv:
             self.g.add_available_game_variable(v)
@@ -132,7 +132,7 @@ class DoomEnv:
             tic=st.number,
             health=gv(GV.HEALTH),
             armor=gv(GV.ARMOR),
-            ammo=gv(GV.AMMO0),
+            ammo=gv(GV.SELECTED_WEAPON_AMMO),
             attack_ready=gv(GV.ATTACK_READY) > 0.5,
             angle=ang,
             kills=gv(GV.KILLCOUNT),

@@ -47,11 +47,12 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
     while not env.g.is_episode_finished() and st.tics < 420:
         ws = env.perceive()
         st.tics = ws.tic
+        ep_time = env.g.get_episode_time()
 
         # --- System Two tick (slow)
-        if ws.tic - last_brain_tic >= BRAIN_EVERY:
+        if ep_time - last_brain_tic >= BRAIN_EVERY:
             goal = brain.think(ws)
-            last_brain_tic = ws.tic
+            last_brain_tic = ep_time
             if verbose:
                 print(f"  [brain  t={ws.tic:4d}] {goal['stance']:10s} {goal.get('intent','')}")
 
@@ -62,9 +63,10 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
         st.spine_log = st.spine_log[-8:]
 
         # --- escalation arc: low confidence -> wake the brain now
-        if d.low_confidence and ws.tic - last_escalation_tic > ESCALATE_EVERY:
+        ep_time = env.g.get_episode_time()
+        if d.low_confidence and ep_time - last_escalation_tic > ESCALATE_EVERY:
             goal = brain.think(ws)
-            last_escalation_tic = ws.tic
+            last_escalation_tic = ep_time
             st.escalations += 1
             if verbose:
                 print(f"  [escalate t={ws.tic:4d}] conf={d.confidence:.2f} -> {goal['stance']}")
@@ -90,9 +92,14 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
     return st
 
 
-def main(episodes: int = 1, skill: int = 4, verbose: bool = True, record: bool = False):
+def main(episodes: int = 1, skill: int = 4, verbose: bool = True, record: bool = False,
+         spine_kind: str = "heur"):
     env = DoomEnv(skill=skill, window=False, record_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "replays") if record else None)
-    spine = ReflexSpine()
+    if spine_kind == "model":
+        from spine_model import ModelSpine
+        spine = ModelSpine()
+    else:
+        spine = ReflexSpine()
     brain = make_brain(prefer_llm=True)
     print(f"brain: {type(brain).__name__} | spine: {type(spine).__name__} | skill={skill}")
     results = []
@@ -101,7 +108,7 @@ def main(episodes: int = 1, skill: int = 4, verbose: bool = True, record: bool =
         st = run_episode(env, spine, brain, seed=ep, verbose=verbose)
         dt = time.time() - t0
         results.append((st, dt))
-        if verbose:
+        if True:
             print(f"episode {ep}: reward={st.reward:.1f} kills={st.kills:.0f} "
                   f"deaths={st.deaths:.0f} health={st.health:.0f} tics={st.tics} "
                   f"decisions={st.decisions} escalations={st.escalations} "
@@ -117,5 +124,6 @@ if __name__ == "__main__":
     p.add_argument("--skill", type=int, default=4)
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--record", action="store_true", help="record .lmp demos to replays/")
+    p.add_argument("--spine", choices=["heur", "model"], default="heur")
     a = p.parse_args()
-    main(episodes=a.episodes, skill=a.skill, verbose=not a.quiet, record=a.record)
+    main(episodes=a.episodes, skill=a.skill, verbose=not a.quiet, record=a.record, spine_kind=a.spine)

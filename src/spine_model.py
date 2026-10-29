@@ -51,11 +51,11 @@ Answer:"""
             pickup_line = f"Nearby pickup: {pk.name} bearing {bearing_deg(pk):+.0f} dist {pk.dist:.0f}.\n"
         return target_line, nearest_line, pickup_line, nearest
 
-    def decide(self, ws, goal: dict) -> Decision:
-        # spinal cord proposes candidate motor programs; the model selects.
-        h = self.fallback.decide(ws, goal)
+    def build_prompt(self, ws, goal: dict, h: Decision | None = None) -> str:
+        h = h or self.fallback.decide(ws, goal)
         ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
-        target_line, nearest_line, pickup_line, nearest = self._state_lines(ws)
+        self._last_ranked = ranked
+        target_line, nearest_line, pickup_line, _ = self._state_lines(ws)
         desc = {
             "attack": "fire pistol now",
             "turn_left": "turn left to face the monster",
@@ -66,7 +66,7 @@ Answer:"""
             "move_right": "strafe right",
         }
         cands = [f"{desc.get(a, a)} [{a}]" for a in ranked]
-        prompt = self.PROMPT_TMPL.format(
+        return self.PROMPT_TMPL.format(
             stance=goal.get("stance", "aggressive"),
             health=ws.health, armor=ws.armor, ammo=ws.ammo,
             ready="yes" if ws.attack_ready else "no",
@@ -74,6 +74,13 @@ Answer:"""
             c1=cands[0], c2=cands[1] if len(cands) > 1 else "wait [attack]",
             c3=cands[2] if len(cands) > 2 else "wait [attack]",
         )
+
+    def decide(self, ws, goal: dict) -> Decision:
+        # spinal cord proposes candidate motor programs; the model selects.
+        h = self.fallback.decide(ws, goal)
+        ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
+        target_line, nearest_line, pickup_line, nearest = self._state_lines(ws)
+        prompt = self.build_prompt(ws, goal, h)
         body = {"prompt": prompt, "temperature": 0.0, "n_predict": 3}
 
         def hold_for(action: str) -> int:

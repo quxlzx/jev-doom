@@ -37,6 +37,8 @@ class ReflexSpine:
 
     def __init__(self, rng: random.Random | None = None):
         self.rng = rng or random.Random()
+        self._lock_id = None       # orientation target hysteresis: stop target-flip
+        self._lock_age = 999
 
     def decide(self, ws, goal: dict) -> Decision:
         probs = {a: 0.0 for a in ACTIONS}
@@ -69,7 +71,24 @@ class ReflexSpine:
                 reason = f"acquire {target.name} bearing={b:.0f} d={dist:.0f}"
         else:
             # no monster on screen: use the world map to orient, then close distance
-            nearest = min(ws.monsters, key=lambda m: m.dist, default=None)
+            # hysteresis: keep the current target unless it dies or something is
+            # much closer (prevents left/right oscillation between two monsters)
+            nearest = None
+            if self._lock_id is not None and self._lock_age < 15:
+                cur = next((m for m in ws.monsters if m.id == self._lock_id), None)
+                if cur is not None:
+                    cand = min(ws.monsters, key=lambda m: m.dist, default=None)
+                    if cand is not None and cand.dist < cur.dist * 0.6:
+                        nearest = cand
+                    else:
+                        nearest = cur
+            else:
+                nearest = min(ws.monsters, key=lambda m: m.dist, default=None)
+            if nearest is not None:
+                if nearest.id != self._lock_id:
+                    self._lock_id, self._lock_age = nearest.id, 0
+                else:
+                    self._lock_age += 1
             if nearest is not None:
                 b = bearing_deg(nearest)
                 if abs(b) > 15:

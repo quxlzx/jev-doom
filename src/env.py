@@ -24,6 +24,7 @@ SCENARIO = os.path.join(zd.scenarios_path, "take_cover.cfg")
 
 @dataclass
 class Entity:
+    id: int = -1
     name: str = ""
     category: str = ""
     x: float = 0.0
@@ -115,11 +116,11 @@ class DoomEnv:
         for o in st.objects:
             if o.category.lower() == "monster":
                 e = _to_player_frame(o.position_x, o.position_y, o.position_z, px, py, ang)
-                e.name, e.category, e.vx, e.vy = o.name, o.category.lower(), o.velocity_x, o.velocity_y
+                e.id, e.name, e.category, e.vx, e.vy = o.id, o.name, o.category.lower(), o.velocity_x, o.velocity_y
                 monsters.append(e)
             elif o.category.lower() in ("health", "armor", "ammo", "weapon", "countable_item", "inventory", "powerup"):
                 e = _to_player_frame(o.position_x, o.position_y, o.position_z, px, py, ang)
-                e.name, e.category = o.name, o.category.lower()
+                e.id, e.name, e.category = o.id, o.name, o.category.lower()
                 pickups.append(e)
         visible = []
         for lb in st.labels:

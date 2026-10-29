@@ -52,6 +52,10 @@ def main():
     # balanced: ~40% deviation labels (2/3), 60% top picks
     dev = [r for r in rows if r["completion"] != "[1]"]
     top = [r for r in rows if r["completion"] == "[1]"]
+    if len(dev) > len(rows) * 0.5:      # already diverse (DAgger): subsample only
+        random.shuffle(rows)
+        rows = rows[:SUBSAMPLE]
+        print("skipped balancing (labels already diverse)")
     n_dev = min(len(dev), int(SUBSAMPLE * 0.4))
     n_top = SUBSAMPLE - n_dev * (len(dev) // max(n_dev, 1) or 1)
     dev = dev * (n_dev // max(len(dev), 1) + 1)

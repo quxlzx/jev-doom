@@ -68,6 +68,8 @@ def main():
     p.add_argument("--out", default=r"D:\doomsrv\corpus4.jsonl")
     p.add_argument("--spine", default="http://127.0.0.1:8181")
     p.add_argument("--seed", type=int, default=21)
+    p.add_argument("--expert-anchor", action="store_true",
+                   help="label = expert pick on every deviation (classic DAgger, no self-reinforcement)")
     a = p.parse_args()
     rng = random.Random(a.seed)
     env = DoomEnv(skill=4)
@@ -81,7 +83,9 @@ def main():
                 window = deltas[i + 1:i + 1 + WINDOW]
                 dmg = any(d[0] > 0 for d in window)
                 kill = any(d[1] > 0 for d in window)
-                if mpos != hpos and dmg and not kill:
+                if a.expert_anchor and mpos != hpos:
+                    label = hpos          # classic DAgger: expert anchors every deviation
+                elif mpos != hpos and dmg and not kill:
                     label = hpos          # model eroded: correct toward expert
                 else:
                     label = mpos          # reinforce the trained policy

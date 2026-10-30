@@ -50,6 +50,8 @@ class WorldState:
     kills: float
     deaths: float
     hits_taken: float
+    nav_bearing: float | None = None
+    nav_dist: float = 0.0
     px: float = 0.0
     py: float = 0.0
     monsters: list[Entity] = field(default_factory=list)      # world-space, player-relative
@@ -94,6 +96,7 @@ class DoomEnv:
             self.g.add_available_game_variable(v)
         self._gi = {v: i for i, v in enumerate(self._gv)}
         self.g.set_objects_info_enabled(True)
+        self.g.set_sectors_info_enabled(True)
         self.g.set_labels_buffer_enabled(True)
         self.g.set_screen_resolution(zd.RES_160X120)  # cheap render so labels populate
         self.g.set_episode_timeout(self.timeout)
@@ -104,7 +107,31 @@ class DoomEnv:
         self.record_dir = record_dir
         if record_dir:
             os.makedirs(record_dir, exist_ok=True)
+        self.nav = None
+        self.nav_goal = None
+        self._nav_age = 999
         self._prev_hits = 0.0
+
+    def _update_nav(self, st, px, py, angle):
+        import math
+        from nav import NavMap
+        if self.scenario != "deadly_corridor":
+            return None, 0.0
+        self._nav_age += 1
+        if self.nav is None or self._nav_age >= 20:
+            self.nav = NavMap(st.sectors)
+            start = self.nav.cell(px, py)
+            self.nav_goal, _, _ = self.nav.reachable_farthest(start)
+            self._nav_age = 0
+        start = self.nav.cell(px, py)
+        if not self.nav.free(start):
+            self.nav._clear_disk(start)
+        path = self.nav.astar(start, self.nav_goal)
+        if not path or len(path) < 2:
+            return None, 0.0
+        _, bearing = self.nav.next_waypoint((px, py), angle, path)
+        gx, gy = self.nav.world(*self.nav_goal)
+        return bearing, math.hypot(gx - px, gy - py)
 
     def reset(self, recording_file: str | None = None) -> None:
         try:
@@ -123,6 +150,7 @@ class DoomEnv:
         px = gv(GV.POSITION_X)
         py = gv(GV.POSITION_Y)
         ang = gv(GV.ANGLE)
+        nb, nd = self._update_nav(st, px, py, ang)
         monsters, pickups = [], []
         for o in st.objects:
             if o.category.lower() == "monster":
@@ -150,6 +178,7 @@ class DoomEnv:
             kills=gv(GV.KILLCOUNT),
             deaths=gv(GV.DEATHCOUNT),
             hits_taken=gv(GV.HITS_TAKEN),
+            nav_bearing=nb, nav_dist=nd,
             px=px, py=py,
             monsters=monsters,
             visible=visible,

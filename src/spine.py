@@ -73,7 +73,30 @@ class ReflexSpine:
                 reason = f"acquire {target.name} bearing={b:.0f} d={dist:.0f}"
         else:
             # no monster on screen: use the world map to orient, then close distance
-            if stance == "navigate" and ws.monsters:
+            if stance == "navigate" and ws.nav_bearing is not None:
+                b = ws.nav_bearing
+                if abs(b) > 10:
+                    turn = "turn_left" if b > 0 else "turn_right"
+                    probs[turn] = 0.85
+                    hold = max(12, min(48, 8 + int(abs(b) / 3.5) + 5))
+                    reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f}"
+                else:
+                    blocked = (self._last_pos is not None and
+                               (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 < 64)
+                    self._last_pos = (ws.px, ws.py)
+                    if blocked:
+                        self._blocked_streak += 1
+                        if self._blocked_streak >= 3:
+                            probs["use"] = 0.9; self._blocked_streak = 0; hold = 3
+                            reason = "nav: blocked x3 -> USE door"
+                        else:
+                            probs["turn_right"] = 0.7; probs["turn_left"] = 0.2; hold = 34
+                            reason = f"nav: blocked -> turn (pos {ws.px:.0f},{ws.py:.0f})"
+                    else:
+                        probs["move_forward"] = 0.9
+                        reason = f"nav: advance, exit d={ws.nav_dist:.0f}"
+                probs_navigate = True
+            elif stance == "navigate" and ws.monsters:
                 far = [m for m in ws.monsters if m.dist < 1500]
                 guide = max(far or ws.monsters, key=lambda m: m.dist)
                 b = bearing_deg(guide)

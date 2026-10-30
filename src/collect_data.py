@@ -79,8 +79,18 @@ def main():
     ms = ModelSpine()  # used only for prompt construction (no HTTP)
     n_kept = 0
     with open(a.out, "w") as f:
-        for ep in range(a.episodes):
+      for ep in range(a.episodes):
+        try:
             samples, kills, health = run_one(env, spine, RuleBrain, rng, ms, a.epsilon)
+        except Exception as e:
+            print(f"ep {ep} crashed: {e.__class__.__name__}: {e} — rebuilding env")
+            try:
+                env.close()
+            except Exception:
+                pass
+            env = DoomEnv(skill=a.skill, scenario=a.scenario)
+            spine = ReflexSpine(rng=rng)
+            continue
             # trajectory quality gate: keep episodes that engaged
             for prompt, label, meta in samples:
                 # outcome filter: keep exploratory picks only from winning episodes

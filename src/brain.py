@@ -31,6 +31,8 @@ class RuleBrain:
     """Reflex arc of the brain: pure thresholds. Always available."""
 
     def think(self, ws) -> dict:
+        if ws.nearest_visible_monster() is None and ws.health >= 30:
+            return {"stance": "navigate", "intent": "follow right wall toward exit"}
         if ws.health < 30:
             return {"stance": "retreat", "intent": "break contact, heal if reachable"}
         if ws.health < 55:
@@ -59,7 +61,9 @@ class LLMBrain:
             "messages": [
                 {"role": "system", "content":
                  "You are the deliberative brain of a Doom agent. Your spinal cord handles "
-                 "reflexes; you set strategy. Reply JSON: "
+                 "reflexes; you set strategy. Guide: this is a deadly corridor — the exit is at "
+                 "the far end; when no monster is on screen use stance=navigate and the "
+                 "spine follows the right-hand wall forward. Reply JSON: "
                  '{"stance": "aggressive|defensive|retreat", "intent": "<one short line>"}. '
                  "Consider health, ammo, and monster pressure."},
                 {"role": "user", "content": summary},

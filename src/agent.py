@@ -25,6 +25,7 @@ class EpisodeStats:
     tics: int = 0
     decisions: int = 0
     escalations: int = 0
+    won: bool = False
     kills: float = 0.0
     deaths: float = 0.0
     health: float = 0.0
@@ -44,7 +45,7 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
     last_brain_tic = 0
     last_escalation_tic = 0
 
-    while not env.g.is_episode_finished() and st.tics < 420:
+    while not env.g.is_episode_finished() and st.tics < env.timeout // 5 + 60:
         ws = env.perceive()
         st.tics = ws.tic
         ep_time = env.g.get_episode_time()
@@ -83,6 +84,7 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
             break
 
     from env import GV
+    st.won = (not env.g.is_episode_finished() or env.g.get_episode_time() < env.timeout - 5) and st.health > 0
     try:
         st.kills = env.g.get_game_variable(GV.KILLCOUNT)
         st.deaths = env.g.get_game_variable(GV.DEATHCOUNT)
@@ -93,8 +95,8 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
 
 
 def main(episodes: int = 1, skill: int = 4, verbose: bool = True, record: bool = False,
-         spine_kind: str = "heur"):
-    env = DoomEnv(skill=skill, window=False, record_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "replays") if record else None)
+         spine_kind: str = "heur", scenario: str = "take_cover"):
+    env = DoomEnv(skill=skill, window=False, scenario=scenario, record_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "replays") if record else None)
     if spine_kind == "model":
         from spine_model import ModelSpine
         spine = ModelSpine()
@@ -109,7 +111,7 @@ def main(episodes: int = 1, skill: int = 4, verbose: bool = True, record: bool =
         dt = time.time() - t0
         results.append((st, dt))
         if True:
-            print(f"episode {ep}: reward={st.reward:.1f} kills={st.kills:.0f} "
+            print(f"episode {ep}: WON={int(st.won)} reward={st.reward:.1f} kills={st.kills:.0f} "
                   f"deaths={st.deaths:.0f} health={st.health:.0f} tics={st.tics} "
                   f"decisions={st.decisions} escalations={st.escalations} "
                   f"stances={st.stances} wall={dt:.1f}s")
@@ -125,5 +127,6 @@ if __name__ == "__main__":
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--record", action="store_true", help="record .lmp demos to replays/")
     p.add_argument("--spine", choices=["heur", "model"], default="heur")
+    p.add_argument("--scenario", choices=["take_cover", "deadly_corridor"], default="take_cover")
     a = p.parse_args()
-    main(episodes=a.episodes, skill=a.skill, verbose=not a.quiet, record=a.record, spine_kind=a.spine)
+    main(episodes=a.episodes, skill=a.skill, verbose=not a.quiet, record=a.record, spine_kind=a.spine, scenario=a.scenario)

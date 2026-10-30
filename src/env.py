@@ -49,6 +49,8 @@ class WorldState:
     kills: float
     deaths: float
     hits_taken: float
+    px: float = 0.0
+    py: float = 0.0
     monsters: list[Entity] = field(default_factory=list)      # world-space, player-relative
     visible: list[Entity] = field(default_factory=list)       # on screen (labels), player-relative bearing
     pickups: list[Entity] = field(default_factory=list)
@@ -68,9 +70,17 @@ def _to_player_frame(wx: float, wy: float, wz: float, px: float, py: float, angl
 
 
 class DoomEnv:
-    def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None):
+    SCENARIOS = {
+        "take_cover": (os.path.join(zd.scenarios_path, "take_cover.cfg"), 350),
+        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 1050),
+    }
+
+    def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None,
+                 scenario: str = "take_cover"):
+        self.scenario = scenario
+        self.timeout = self.SCENARIOS[scenario][1]
         self.g = zd.DoomGame()
-        self.g.set_doom_scenario_path(SCENARIO)
+        self.g.set_doom_scenario_path(self.SCENARIOS[scenario][0])
         self.g.set_doom_map("map01")
         self.g.set_doom_skill(skill)
         self.g.clear_available_buttons()
@@ -85,7 +95,7 @@ class DoomEnv:
         self.g.set_objects_info_enabled(True)
         self.g.set_labels_buffer_enabled(True)
         self.g.set_screen_resolution(zd.RES_160X120)  # cheap render so labels populate
-        self.g.set_episode_timeout(350)  # 350 tics = 10s, like the official take_cover
+        self.g.set_episode_timeout(self.timeout)
         self.g.set_episode_start_time(1)
         self.g.set_window_visible(window)
         self.g.set_mode(zd.Mode.PLAYER)
@@ -139,6 +149,7 @@ class DoomEnv:
             kills=gv(GV.KILLCOUNT),
             deaths=gv(GV.DEATHCOUNT),
             hits_taken=gv(GV.HITS_TAKEN),
+            px=px, py=py,
             monsters=monsters,
             visible=visible,
             pickups=pickups,

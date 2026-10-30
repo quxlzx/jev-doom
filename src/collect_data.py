@@ -28,7 +28,7 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
     samples = []
     while not g.is_episode_finished():
         ws = env.perceive()
-        if g.get_episode_time() > 350:
+        if g.get_episode_time() > env.timeout:
             break
         # expert proposal
         h = spine.decide(ws, goal)
@@ -71,9 +71,10 @@ def main():
     p.add_argument("--skill", type=int, default=4)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--epsilon", type=float, default=0.3)
+    p.add_argument("--scenario", default="take_cover")
     a = p.parse_args()
     rng = random.Random(a.seed)
-    env = DoomEnv(skill=a.skill)
+    env = DoomEnv(skill=a.skill, scenario=a.scenario)
     spine = ReflexSpine(rng=rng)
     ms = ModelSpine()  # used only for prompt construction (no HTTP)
     n_kept = 0

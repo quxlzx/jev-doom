@@ -39,6 +39,7 @@ class ReflexSpine:
         self.rng = rng or random.Random()
         self._lock_id = None       # orientation target hysteresis: stop target-flip
         self._lock_age = 999
+        self._last_pos = None      # blocked detection for wall-following explore
 
     def decide(self, ws, goal: dict) -> Decision:
         probs = {a: 0.0 for a in ACTIONS}
@@ -102,14 +103,36 @@ class ReflexSpine:
                     probs["move_left" if self.rng.random() < 0.5 else "move_right"] = 0.2
                     reason = f"advance to {nearest.name} d={nearest.dist:.0f} (no LOS)"
             else:
-                side = self.rng.choice(["move_left", "move_right"])
-                probs[side] = 0.5
-                reason = "no monsters at all"
+                # explore: right-hand-rule wall hug toward the exit (guided by brain)
+                blocked = False
+                if self._last_pos is not None:
+                    dx, dy = ws.px - self._last_pos[0], ws.py - self._last_pos[1]
+                    blocked = (dx * dx + dy * dy) < 64  # <8 units moved since last step
+                self._last_pos = (ws.px, ws.py)
+                pk = min(ws.pickups, key=lambda p: p.dist, default=None)
+                if pk is not None and pk.dist < 350 and abs(bearing_deg(pk)) > 20 and ws.health < 80:
+                    turn = "turn_left" if bearing_deg(pk) > 0 else "turn_right"
+                    probs[turn] = 0.7
+                    hold = min(40, 8 + int(abs(bearing_deg(pk)) / 3.5))
+                    reason = f"explore: route to {pk.name} d={pk.dist:.0f}"
+                elif blocked:
+                    probs["turn_right"] = 0.85
+                    hold = 34  # ~90 deg
+                    reason = f"explore: blocked -> hard right (pos {ws.px:.0f},{ws.py:.0f})"
+                else:
+                    probs["move_forward"] = 0.6
+                    probs["turn_right"] = 0.25
+                    hold = 2 if probs["move_forward"] >= probs["turn_right"] else 12
+                    reason = f"explore: advance/hug right (pos {ws.px:.0f},{ws.py:.0f})"
 
         # defensive override: break contact
+        self._last_pos = (ws.px, ws.py)
         if stance in ("defensive", "retreat") and target is not None:
-            probs["move_back"] += 0.25
-            probs["attack"] *= 0.6
+            # disengage dominates: back up while firing, stop turning in place
+            probs["move_back"] = max(probs.get("move_back", 0) + 0.6, 0.55)
+            probs["attack"] *= 0.7
+            for t in ("turn_left", "turn_right"):
+                probs[t] *= 0.25
 
         total = sum(probs.values()) or 1.0
         probs = {k: v / total for k, v in probs.items()}

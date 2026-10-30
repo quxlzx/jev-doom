@@ -31,7 +31,7 @@ def run_one(env, ms, hs, rng, base_url):
     prev_hits, prev_kills = 0.0, 0.0
     while not g.is_episode_finished():
         ws = env.perceive()
-        if g.get_episode_time() > 350:
+        if g.get_episode_time() > env.timeout:
             break
         h = hs.decide(ws, goal)
         ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
@@ -68,11 +68,12 @@ def main():
     p.add_argument("--out", default=r"D:\doomsrv\corpus4.jsonl")
     p.add_argument("--spine", default="http://127.0.0.1:8181")
     p.add_argument("--seed", type=int, default=21)
+    p.add_argument("--scenario", default="take_cover")
     p.add_argument("--expert-anchor", action="store_true",
                    help="label = expert pick on every deviation (classic DAgger, no self-reinforcement)")
     a = p.parse_args()
     rng = random.Random(a.seed)
-    env = DoomEnv(skill=4)
+    env = DoomEnv(skill=4, scenario=a.scenario)
     hs = ReflexSpine(rng=rng)
     ms = ModelSpine(base_url=a.spine)
     n = 0

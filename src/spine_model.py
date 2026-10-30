@@ -89,7 +89,9 @@ Answer:"""
         def hold_for(action: str) -> int:
             t = ws.nearest_visible_monster() or nearest
             if action.startswith("turn") and t is not None:
-                return min(40, 8 + int(abs(bearing_deg(t)) / 3.5))
+                return max(12, min(48, 8 + int(abs(bearing_deg(t)) / 3.5) + 5))
+            if action == "move_forward":
+                return 20  # Doom acceleration: short taps look like walls
             return 2
 
         try:

@@ -75,7 +75,7 @@ def _to_player_frame(wx: float, wy: float, wz: float, px: float, py: float, angl
 class DoomEnv:
     SCENARIOS = {
         "take_cover": (os.path.join(zd.scenarios_path, "take_cover.cfg"), 350),
-        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 2100),  # 60s: 30s too tight for wall-follow
+        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 4200),  # 2min: path is ~3500 units
     }
 
     def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None,

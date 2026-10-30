@@ -102,16 +102,19 @@ class ReflexSpine:
                     self._last_pos = (ws.px, ws.py)
                     if blocked:
                         self._blocked_streak += 1
-                        if self._blocked_streak >= 3:
-                            # turn around instead of USE: blind USE can hit teleports
+                        if self._blocked_streak >= 6:
                             probs["turn_right"] = 0.9; self._blocked_streak = 0; hold = 48
-                            reason = "nav: blocked x3 -> pivot"
+                            reason = "nav: blocked x6 -> pivot"
+                        elif self._blocked_streak >= 3:
+                            # a real door after genuine long-blocked holds: USE opens it
+                            probs["use"] = 0.9; self._blocked_streak = 0; hold = 5
+                            reason = "nav: blocked x3 -> USE (door)"
                         else:
                             probs["turn_right"] = 0.7; probs["turn_left"] = 0.2; hold = 34
                             reason = f"nav: blocked -> turn (pos {ws.px:.0f},{ws.py:.0f})"
                     else:
                         probs["move_forward"] = 0.9
-                        hold = 14  # long enough to clear the acceleration ramp
+                        hold = 20  # long holds keep Doom momentum
                         reason = f"nav: advance, exit d={ws.nav_dist:.0f}"
                 probs_navigate = True
             elif stance == "navigate" and ws.monsters:

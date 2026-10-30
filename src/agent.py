@@ -84,7 +84,12 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
             break
 
     from env import GV
-    st.won = (not env.g.is_episode_finished() or env.g.get_episode_time() < env.timeout - 5) and st.health > 0
+    st.won = env.g.is_episode_finished() and env.g.get_episode_time() < env.timeout - 5 and env.g.get_game_variable(GV.HEALTH) > 0
+    if st.won:
+        try:
+            print(f"  [WIN] exit at pos ({env.g.get_game_variable(GV.POSITION_X):.0f},{env.g.get_game_variable(GV.POSITION_Y):.0f}) t={env.g.get_episode_time()}")
+        except Exception:
+            pass
     try:
         st.kills = env.g.get_game_variable(GV.KILLCOUNT)
         st.deaths = env.g.get_game_variable(GV.DEATHCOUNT)

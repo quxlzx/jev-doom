@@ -40,6 +40,7 @@ class ReflexSpine:
         self._lock_id = None       # orientation target hysteresis: stop target-flip
         self._lock_age = 999
         self._last_pos = None      # blocked detection for wall-following explore
+        self._blocked_streak = 0
 
     def decide(self, ws, goal: dict) -> Decision:
         probs = {a: 0.0 for a in ACTIONS}
@@ -52,8 +53,8 @@ class ReflexSpine:
             stance = "defensive"
 
         def turn_hold(bearing: float) -> int:
-            # 7-tic windup + 3.5deg/tic; proportional, capped
-            return min(40, 8 + int(abs(bearing) / 3.5))
+            # 7-tic windup + 3.5deg/tic: need 7 + deg/3.5 tics, floored at 12
+            return max(12, min(48, 8 + int(abs(bearing) / 3.5) + 5))
 
         if target is not None:
             b = bearing_deg(target)
@@ -72,8 +73,39 @@ class ReflexSpine:
                 reason = f"acquire {target.name} bearing={b:.0f} d={dist:.0f}"
         else:
             # no monster on screen: use the world map to orient, then close distance
-            # hysteresis: keep the current target unless it dies or something is
-            # much closer (prevents left/right oscillation between two monsters)
+            if stance == "navigate" and ws.monsters:
+                far = [m for m in ws.monsters if m.dist < 1500]
+                guide = max(far or ws.monsters, key=lambda m: m.dist)
+                b = bearing_deg(guide)
+                if abs(b) > 12:
+                    turn = "turn_left" if b > 0 else "turn_right"
+                    probs[turn] = 0.85
+                    hold = max(12, min(48, 8 + int(abs(b) / 3.5) + 5))
+                    reason = f"guide: follow corridor to {guide.name} bearing={b:.0f} d={guide.dist:.0f}"
+                else:
+                    pk = min(ws.pickups, key=lambda p: p.dist, default=None)
+                    blocked = (self._last_pos is not None and
+                               (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 < 64)
+                    self._last_pos = (ws.px, ws.py)
+                    if blocked:
+                        self._blocked_streak += 1
+                        if self._blocked_streak >= 3:
+                            probs["use"] = 0.9; self._blocked_streak = 0; hold = 3
+                            reason = "guide: blocked x3 -> USE"
+                        else:
+                            probs["turn_right"] = 0.8; hold = 34
+                            reason = f"guide: blocked -> right (pos {ws.px:.0f},{ws.py:.0f})"
+                    elif pk is not None and pk.dist < 300 and ws.health < 80 and abs(bearing_deg(pk)) > 25:
+                        turn = "turn_left" if bearing_deg(pk) > 0 else "turn_right"
+                        probs[turn] = 0.7
+                        hold = max(12, min(48, 8 + int(abs(bearing_deg(pk)) / 3.5) + 5))
+                        reason = f"guide: detour to {pk.name}"
+                    else:
+                        probs["move_forward"] = 0.85
+                        reason = f"guide: advance to {guide.name} d={guide.dist:.0f}"
+                probs_navigate = True
+            else:
+                probs_navigate = False
             nearest = None
             if self._lock_id is not None and self._lock_age < 15:
                 cur = next((m for m in ws.monsters if m.id == self._lock_id), None)
@@ -85,12 +117,12 @@ class ReflexSpine:
                         nearest = cur
             else:
                 nearest = min(ws.monsters, key=lambda m: m.dist, default=None)
-            if nearest is not None:
+            if not probs_navigate and nearest is not None:
                 if nearest.id != self._lock_id:
                     self._lock_id, self._lock_age = nearest.id, 0
                 else:
                     self._lock_age += 1
-            if nearest is not None:
+            if not probs_navigate and nearest is not None:
                 b = bearing_deg(nearest)
                 if abs(b) > 15:
                     turn = "turn_left" if b > 0 else "turn_right"
@@ -99,10 +131,11 @@ class ReflexSpine:
                     reason = f"orient to {nearest.name} bearing={b:.0f} d={nearest.dist:.0f}"
                 else:
                     # facing it but not visible => geometry blocks LOS: go around/forward
+                    self._lock_age += 1
                     probs["move_forward"] = 0.7
                     probs["move_left" if self.rng.random() < 0.5 else "move_right"] = 0.2
                     reason = f"advance to {nearest.name} d={nearest.dist:.0f} (no LOS)"
-            else:
+            elif not probs_navigate:
                 # explore: right-hand-rule wall hug toward the exit (guided by brain)
                 blocked = False
                 if self._last_pos is not None:
@@ -116,12 +149,26 @@ class ReflexSpine:
                     hold = min(40, 8 + int(abs(bearing_deg(pk)) / 3.5))
                     reason = f"explore: route to {pk.name} d={pk.dist:.0f}"
                 elif blocked:
-                    probs["turn_right"] = 0.85
-                    hold = 34  # ~90 deg
-                    reason = f"explore: blocked -> hard right (pos {ws.px:.0f},{ws.py:.0f})"
+                    self._blocked_streak += 1
+                    # jittered wall-hug: pure right-hand rule cycles on this map
+                    if self._blocked_streak >= 3:
+                        # maybe it is a DOOR: try USE, then look for the switch
+                        probs["use"] = 0.9
+                        self._blocked_streak = 0
+                        hold = 3
+                        reason = f"explore: blocked x3 -> USE door (pos {ws.px:.0f},{ws.py:.0f})"
+                    elif self.rng.random() < 0.25:
+                        probs["turn_left"] = 0.85
+                        hold = 34
+                        reason = f"explore: blocked -> hard LEFT (pos {ws.px:.0f},{ws.py:.0f})"
+                    else:
+                        probs["turn_right"] = 0.85
+                        hold = 34
+                        reason = f"explore: blocked -> hard right (pos {ws.px:.0f},{ws.py:.0f})"
                 else:
+                    self._blocked_streak = 0
                     probs["move_forward"] = 0.6
-                    probs["turn_right"] = 0.25
+                    probs["turn_right" if self.rng.random() < 0.7 else "turn_left"] = 0.25
                     hold = 2 if probs["move_forward"] >= probs["turn_right"] else 12
                     reason = f"explore: advance/hug right (pos {ws.px:.0f},{ws.py:.0f})"
 

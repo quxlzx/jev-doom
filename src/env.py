@@ -8,7 +8,7 @@ import vizdoom as zd
 
 GV, B = zd.GameVariable, zd.Button
 
-ACTIONS = ["move_left", "move_right", "move_back", "move_forward", "turn_left", "turn_right", "attack"]
+ACTIONS = ["move_left", "move_right", "move_back", "move_forward", "turn_left", "turn_right", "attack", "use"]
 _BUTTONS = {
     "move_left": B.MOVE_LEFT,
     "move_right": B.MOVE_RIGHT,
@@ -16,6 +16,7 @@ _BUTTONS = {
     "move_forward": B.MOVE_FORWARD,
     "turn_left": B.TURN_LEFT,
     "turn_right": B.TURN_RIGHT,
+    "use": B.USE,
     "attack": B.ATTACK,
 }
 
@@ -72,7 +73,7 @@ def _to_player_frame(wx: float, wy: float, wz: float, px: float, py: float, angl
 class DoomEnv:
     SCENARIOS = {
         "take_cover": (os.path.join(zd.scenarios_path, "take_cover.cfg"), 350),
-        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 1050),
+        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 2100),  # 60s: 30s too tight for wall-follow
     }
 
     def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None,

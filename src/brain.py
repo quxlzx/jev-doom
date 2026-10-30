@@ -80,7 +80,7 @@ class LLMBrain:
                 out = json.loads(r.read())
             content = out["choices"][0]["message"]["content"]
             goal = json.loads(content)
-            if goal.get("stance") not in ("aggressive", "defensive", "retreat"):
+            if goal.get("stance") not in ("aggressive", "defensive", "retreat", "navigate"):
                 raise ValueError("bad stance")
             return {"stance": goal["stance"], "intent": goal.get("intent", "")}
         except Exception as e:

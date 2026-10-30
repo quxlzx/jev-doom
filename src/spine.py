@@ -103,8 +103,9 @@ class ReflexSpine:
                     if blocked:
                         self._blocked_streak += 1
                         if self._blocked_streak >= 3:
-                            probs["use"] = 0.9; self._blocked_streak = 0; hold = 3
-                            reason = "nav: blocked x3 -> USE door"
+                            # turn around instead of USE: blind USE can hit teleports
+                            probs["turn_right"] = 0.9; self._blocked_streak = 0; hold = 48
+                            reason = "nav: blocked x3 -> pivot"
                         else:
                             probs["turn_right"] = 0.7; probs["turn_left"] = 0.2; hold = 34
                             reason = f"nav: blocked -> turn (pos {ws.px:.0f},{ws.py:.0f})"
@@ -130,8 +131,8 @@ class ReflexSpine:
                     if blocked:
                         self._blocked_streak += 1
                         if self._blocked_streak >= 3:
-                            probs["use"] = 0.9; self._blocked_streak = 0; hold = 3
-                            reason = "guide: blocked x3 -> USE"
+                            probs["turn_right"] = 0.9; self._blocked_streak = 0; hold = 48
+                            reason = "guide: blocked x3 -> pivot"
                         else:
                             probs["turn_right"] = 0.8; hold = 34
                             reason = f"guide: blocked -> right (pos {ws.px:.0f},{ws.py:.0f})"

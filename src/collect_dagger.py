@@ -76,7 +76,7 @@ def main():
     n = 0
     with open(a.out, "w", encoding="utf-8") as f:
         for ep in range(a.episodes):
-            samples, deltas, kills = run_one(env, hs, ms, rng, a.spine)
+            samples, deltas, kills = run_one(env, ms, hs, rng, a.spine)
             for i, (prompt, mpos, hpos) in enumerate(samples):
                 window = deltas[i + 1:i + 1 + WINDOW]
                 dmg = any(d[0] > 0 for d in window)

@@ -31,6 +31,20 @@ class NavMap:
         self.wall = [[False] * self.w for _ in range(self.h)]
         for x1, y1, x2, y2 in segs:
             self._raster(x1, y1, x2, y2)
+        self._inflate()  # walls are lethal to a ~16-unit radius player
+
+    def _inflate(self):
+        w, wall = self.w, self.wall
+        grown = [[wall[y][x] for x in range(w)] for y in range(self.h)]
+        for y in range(self.h):
+            for x in range(w):
+                if wall[y][x]:
+                    for dy in (-1, 0, 1):
+                        for dx in (-1, 0, 1):
+                            ny, nx = y + dy, x + dx
+                            if 0 <= ny < self.h and 0 <= nx < w:
+                                grown[ny][nx] = True
+        self.wall = grown
 
     def _raster(self, x1, y1, x2, y2):
         d = math.hypot(x2 - x1, y2 - y1)
@@ -133,8 +147,11 @@ class NavMap:
         cur = self.cell(*pos)
         best = None
         for c in path[1:]:
-            if math.hypot(*[self.world(*c)[i] - pos[i] for i in (0, 1)]) < 40:
+            d = math.hypot(*[self.world(*c)[i] - pos[i] for i in (0, 1)])
+            if d < 40:
                 continue
+            if d > 160:      # short lookahead: aim where we can actually walk
+                break
             if self.los(cur, c):
                 best = c
             else:

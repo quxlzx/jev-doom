@@ -41,6 +41,8 @@ class ReflexSpine:
         self._lock_age = 999
         self._last_pos = None      # blocked detection for wall-following explore
         self._blocked_streak = 0
+        self._last_nav_b = None    # nav bearing damping
+        self._turn_shrink = 12
 
     def decide(self, ws, goal: dict) -> Decision:
         probs = {a: 0.0 for a in ACTIONS}
@@ -78,11 +80,25 @@ class ReflexSpine:
                 if abs(b) > 10:
                     turn = "turn_left" if b > 0 else "turn_right"
                     probs[turn] = 0.85
-                    hold = max(12, min(48, 8 + int(abs(b) / 3.5) + 5))
-                    reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f}"
+                    # windup varies by scenario; damp hard when bearing oscillates
+    # (sign flipped while not moving = we are overshooting the waypoint)
+                    flipped = (self._last_nav_b is not None and
+                               (b > 0) != (self._last_nav_b > 0))
+                    moved = (self._last_pos is not None and
+                             (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 >= 100)
+                    if flipped and not moved:
+                        self._turn_shrink = max(6, int(self._turn_shrink * 0.5))
+                        hold = self._turn_shrink
+                    else:
+                        hold = max(8, min(40, int(abs(b) / 3.5) + 6))
+                        self._turn_shrink = hold
+                    self._last_nav_b = b
+                    reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f} hold={hold}"
                 else:
+                    # Doom accelerates from standstill: judge "blocked" only after a
+                    # long enough hold, else acceleration looks like a wall
                     blocked = (self._last_pos is not None and
-                               (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 < 64)
+                               (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 < 100)
                     self._last_pos = (ws.px, ws.py)
                     if blocked:
                         self._blocked_streak += 1
@@ -94,6 +110,7 @@ class ReflexSpine:
                             reason = f"nav: blocked -> turn (pos {ws.px:.0f},{ws.py:.0f})"
                     else:
                         probs["move_forward"] = 0.9
+                        hold = 14  # long enough to clear the acceleration ramp
                         reason = f"nav: advance, exit d={ws.nav_dist:.0f}"
                 probs_navigate = True
             elif stance == "navigate" and ws.monsters:

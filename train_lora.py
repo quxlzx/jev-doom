@@ -4,7 +4,9 @@ Run on the desktop: D:\\doom-venv\\Scripts\\python.exe train_lora.py
 Prompt tokens are masked from the loss; the model learns only the [1/2/3] pick.
 """
 from __future__ import annotations
+import argparse
 import json
+import os
 import random
 
 import torch
@@ -17,7 +19,7 @@ CORPUS = r"D:\doomsrv\corpus2.jsonl"
 BASE = r"D:\doomsrv\Qwen3-1.7B-hf"
 OUT = r"D:\doomsrv\spine-lora"
 MAX_LEN = 384
-SUBSAMPLE = 40000
+SUBSAMPLE = int(os.environ.get("SUBSAMPLE", "40000"))
 SEED = 13
 
 
@@ -41,7 +43,13 @@ class SpineDS(Dataset):
 
 
 def main():
-    random.seed(SEED)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--shard", type=int, default=0)
+    ap.add_argument("--nshards", type=int, default=1)
+    ap.add_argument("--out", default=OUT)
+    ap.add_argument("--seed", type=int, default=SEED)
+    a = ap.parse_args()
+    random.seed(a.seed + a.shard)
     rows = []
     with open(CORPUS, encoding="utf-8") as f:
         for line in f:
@@ -63,6 +71,9 @@ def main():
     random.shuffle(top)
     rows = top[:SUBSAMPLE - n_dev] + dev[:n_dev]
     print(f"balanced: dev={n_dev} top={len(rows)-n_dev}")
+    if a.nshards > 1:
+        rows = [r for i, r in enumerate(rows) if i % a.nshards == a.shard]
+        print(f"shard {a.shard}/{a.nshards}: {len(rows)} rows")
     print(f"train samples: {len(rows)}")
 
     tok = AutoTokenizer.from_pretrained(BASE)
@@ -83,25 +94,25 @@ def main():
     coll = DataCollatorForSeq2Seq(tok, padding=True, max_length=MAX_LEN, pad_to_multiple_of=8)
 
     args = TrainingArguments(
-        output_dir=OUT,
+        output_dir=a.out,
         num_train_epochs=1.5,
-        per_device_train_batch_size=6,
-        gradient_accumulation_steps=6,
+        per_device_train_batch_size=3,
+        gradient_accumulation_steps=4,
+        save_steps=100000,
         learning_rate=1e-4,
         lr_scheduler_type="cosine",
         warmup_steps=100,
         bf16=True,
         logging_steps=50,
-        save_steps=2000,
         save_total_limit=2,
         report_to=[],
         seed=SEED,
     )
     tr = Trainer(model=model, args=args, train_dataset=ds, data_collator=coll)
     tr.train()
-    model.save_pretrained(OUT)
-    tok.save_pretrained(OUT)
-    print("saved adapter ->", OUT)
+    model.save_pretrained(a.out)
+    tok.save_pretrained(a.out)
+    print("saved adapter ->", a.out)
 
 
 if __name__ == "__main__":

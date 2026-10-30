@@ -40,6 +40,7 @@ class ReflexSpine:
         self._lock_id = None       # orientation target hysteresis: stop target-flip
         self._lock_age = 999
         self._last_pos = None      # blocked detection for wall-following explore
+        self._pos_hist = []        # net-displacement stuck detector (wall sliding)
         self._blocked_streak = 0
         self._last_nav_b = None    # nav bearing damping
         self._turn_shrink = 12
@@ -100,15 +101,34 @@ class ReflexSpine:
                     blocked = (self._last_pos is not None and
                                (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 < 100)
                     self._last_pos = (ws.px, ws.py)
+                    # sliding along a wall resets per-step blocked; net displacement over
+                    # 8 decisions catches oscillating-in-place (e.g. stalled at a door)
+                    self._pos_hist.append((ws.px, ws.py))
+                    if len(self._pos_hist) > 9:
+                        self._pos_hist.pop(0)
+                    if not blocked and len(self._pos_hist) >= 9:
+                        ox, oy = self._pos_hist[0]
+                        if (ws.px - ox)**2 + (ws.py - oy)**2 < 6400:
+                            blocked = True
                     if blocked:
                         self._blocked_streak += 1
-                        if self._blocked_streak >= 6:
-                            probs["turn_right"] = 0.9; self._blocked_streak = 0; hold = 48
-                            reason = "nav: blocked x6 -> pivot"
-                        elif self._blocked_streak >= 3:
-                            # a real door after genuine long-blocked holds: USE opens it
-                            probs["use"] = 0.9; self._blocked_streak = 0; hold = 5
-                            reason = "nav: blocked x3 -> USE (door)"
+                        s = self._blocked_streak
+                        if s >= 20:
+                            probs["turn_right"] = 0.9; hold = 48
+                            reason = "nav: stuck -> pivot sweep"
+                        elif s >= 6:
+                            # USE-sweep: alternate pressing USE with small turns so
+                            # every facing gets tried; ends when a door opens
+                            if s % 2 == 0:
+                                probs["use"] = 0.9; hold = 5
+                                reason = "nav: stuck sweep -> USE"
+                            else:
+                                probs["turn_right"] = 0.9; hold = 12
+                                reason = "nav: stuck sweep -> turn"
+                        elif s >= 3:
+                            # 90-degree right hug: walks around corners, no overshoot
+                            probs["turn_right"] = 0.9; hold = 20
+                            reason = "nav: blocked x3 -> 90-deg hug"
                         else:
                             probs["turn_right"] = 0.7; probs["turn_left"] = 0.2; hold = 34
                             reason = f"nav: blocked -> turn (pos {ws.px:.0f},{ws.py:.0f})"

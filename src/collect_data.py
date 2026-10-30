@@ -82,15 +82,6 @@ def main():
       for ep in range(a.episodes):
         try:
             samples, kills, health = run_one(env, spine, RuleBrain, rng, ms, a.epsilon)
-        except Exception as e:
-            print(f"ep {ep} crashed: {e.__class__.__name__}: {e} — rebuilding env")
-            try:
-                env.close()
-            except Exception:
-                pass
-            env = DoomEnv(skill=a.skill, scenario=a.scenario)
-            spine = ReflexSpine(rng=rng)
-            continue
             # trajectory quality gate: keep episodes that engaged
             for prompt, label, meta in samples:
                 # outcome filter: keep exploratory picks only from winning episodes
@@ -101,9 +92,19 @@ def main():
                                     "completion": f"[{label}]",
                                     "meta": {**meta, "ep": ep, "kills": kills,
                                              "health": health, "weight": weight}}) + "\n")
+            f.flush()
             n_kept += len(samples)
-            if ep % 50 == 0:
-                print(f"ep {ep}: samples={n_kept} last kills={kills}")
+            if ep % 25 == 0:
+                print(f"ep {ep}: samples={n_kept} last kills={kills}", flush=True)
+        except Exception as e:
+            print(f"ep {ep} crashed: {e.__class__.__name__}: {e} — rebuilding env", flush=True)
+            try:
+                env.close()
+            except Exception:
+                pass
+            env = DoomEnv(skill=a.skill, scenario=a.scenario)
+            spine = ReflexSpine(rng=rng)
+            continue
     print(f"done: {n_kept} samples -> {a.out}")
     env.close()
 

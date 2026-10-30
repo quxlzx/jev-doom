@@ -16,8 +16,10 @@ import vizdoom as zd
 
 def render(lmp: str, out: str, fps: int = 35) -> None:
     import imageio_ffmpeg
+    scenario = os.environ.get("SCENARIO", "take_cover")
+    cfg = {"take_cover": "take_cover.cfg", "deadly_corridor": "deadly_corridor.cfg"}[scenario]
     game = zd.DoomGame()
-    game.set_doom_scenario_path(os.path.join(zd.scenarios_path, "take_cover.cfg"))
+    game.set_doom_scenario_path(os.path.join(zd.scenarios_path, cfg))
     game.set_doom_map("map01")
     game.set_doom_skill(4)
     game.set_screen_resolution(zd.RES_640X480)
@@ -51,5 +53,8 @@ if __name__ == "__main__":
     p.add_argument("lmp")
     p.add_argument("out")
     p.add_argument("--fps", type=int, default=35)
+    p.add_argument("--scenario", default=None)
     a = p.parse_args()
+    if a.scenario:
+        os.environ["SCENARIO"] = a.scenario
     render(a.lmp, a.out, a.fps)

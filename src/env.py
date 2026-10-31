@@ -202,9 +202,11 @@ class DoomEnv:
             pickups=pickups,
         )
 
-    def step(self, action: str, tics: int = 2) -> tuple[float, bool]:
-        """Execute one named action for `tics` tics. Returns (reward, episode_over)."""
-        vec = [1.0 if a == action else 0.0 for a in ACTIONS]
+    def step(self, action, tics: int = 2) -> tuple[float, bool]:
+        """Execute one named action (or list of simultaneous buttons) for
+        `tics` tics. Doom buttons are concurrent: move+fire is legal."""
+        acts = action if isinstance(action, (list, tuple)) else [action]
+        vec = [1.0 if a in acts else 0.0 for a in ACTIONS]
         r = self.g.make_action(vec, tics)
         return r, self.g.is_episode_finished()
 

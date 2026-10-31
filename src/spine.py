@@ -61,7 +61,19 @@ class ReflexSpine:
                        (ws.px - self._pos_hist[0][0])**2 +
                        (ws.py - self._pos_hist[0][1])**2 < 6400)
 
+        # glass/window targets: visible but bullets bounce off windows.
+        # If firing at one target yields no kill for too long, blacklist it.
+        self._glass_lock = getattr(self, "_glass_lock", {})
+        for k in list(self._glass_lock):
+            self._glass_lock[k] -= 1
+            if self._glass_lock[k] <= 0:
+                del self._glass_lock[k]
+        self._fire_streak = getattr(self, "_fire_streak", [None, 0])
         target = ws.nearest_visible_monster()
+        while target is not None and target.id in self._glass_lock:
+            others = [m for m in ws.monsters
+                      if m.id != target.id and m.id not in self._glass_lock]
+            target = min(others, key=lambda m: m.dist, default=None)
         if (self._stuck and ws.nav_bearing is not None and
                 (target is None or target.dist > 250)):
             # mission > mirage: a FAR unreachable monster (window/ledge) must
@@ -76,16 +88,29 @@ class ReflexSpine:
             stance = "defensive"
 
         def turn_hold(bearing: float) -> int:
-            # 7-tic windup + 3.5deg/tic: need 7 + deg/3.5 tics, floored at 12
-            return max(12, min(48, 8 + int(abs(bearing) / 3.5) + 5))
+            # measured physics: 7-tic windup THEN ~4.5deg/tic. The old 3.5/tic
+            # no-windup model overshot ~2x, causing acquire oscillation.
+            return max(9, min(48, 7 + int(abs(bearing) / 4.5) + 2))
 
         if target is not None:
             b = bearing_deg(target)
             dist = target.dist
             aligned = abs(b) < 6.0
 
-            if aligned and ws.attack_ready and dist < 1600:
-                if dist < 500 and self.rng.random() < 0.3:
+            if aligned and ws.attack_ready and dist < 1600 and ws.ammo > 0:
+                # glass detection: same target, many shots, no progress
+                if self._fire_streak[0] == target.id:
+                    self._fire_streak[1] += 1
+                else:
+                    self._fire_streak = [target.id, 1]
+                if self._fire_streak[1] >= 18 and dist > 150:
+                    self._glass_lock[target.id] = 40
+                    self._fire_streak = [None, 0]
+                    # treat as no target this decision: navigate instead
+                    probs["move_forward"] = 0.8
+                    reason = f"glass? {target.name} d={dist:.0f}: 18 shots no kill, ignore"
+                    target = None
+                elif dist < 500 and self.rng.random() < 0.3:
                     # strafe-dodge while trading shots: barons telegraph fireballs
                     side = "move_left" if self.rng.random() < 0.5 else "move_right"
                     probs[side] = 0.8; probs["attack"] = 0.5
@@ -96,6 +121,11 @@ class ReflexSpine:
                     probs["move_left"] = 0.07
                     probs["move_right"] = 0.07
                     reason = f"fire on {target.name} d={dist:.0f}"
+            elif ws.ammo <= 0 and dist < 400:
+                # dry pistol: disengage; the nav pickup-detour hunts ammo
+                probs["move_back"] = 0.85
+                hold = 12
+                reason = f"DRY pistol vs {target.name} d={dist:.0f}: back off"
             else:
                 turn = "turn_left" if b > 0 else "turn_right"
                 probs[turn] = 0.9
@@ -122,7 +152,7 @@ class ReflexSpine:
                     # (a band-aid for target-flip oscillation, which target-
                     # lock hysteresis already fixes) caused turn limit-cycles:
                     # shrunk holds rotate ~0deg and the bearing never converges.
-                    hold = max(8, min(40, int(abs(b) / 3.5) + 6))
+                    hold = max(9, min(48, 7 + int(abs(b) / 4.5) + 2))
                     self._turn_shrink = hold
                     self._last_nav_b = b
                     if self._stuck:
@@ -338,5 +368,14 @@ class ReflexSpine:
         total = sum(probs.values()) or 1.0
         probs = {k: v / total for k, v in probs.items()}
         top = max(probs, key=probs.get)
-        return Decision(action=top, probs=probs, confidence=probs[top],
+        # compound action: Doom buttons are concurrent. Advance while firing
+        # breaks the pinch deadlock (turn-to-aim in a chokepoint = pinned).
+        if (top == "move_forward" and ws.ammo > 0 and ws.attack_ready
+                and target is not None and abs(bearing_deg(target)) < 30
+                and ws.nav_bearing is not None and abs(ws.nav_bearing) < 25):
+            top = ["move_forward", "attack"]
+        elif (top == "attack" and target is not None and target.dist > 250
+              and ws.nav_bearing is not None and abs(ws.nav_bearing) < 25):
+            top = ["move_forward", "attack"]
+        return Decision(action=top, probs=probs, confidence=probs[top] if isinstance(top, str) else 1.0,
                         reason=reason, hold_tics=hold)

@@ -86,12 +86,16 @@ class NavMap:
             sy = y1 + (y2 - y1) * t
             cx = int((sx - self.x0) / CELL)
             cy = int((sy - self.y0) / CELL)
-            # mark this cell plus any neighbor whose CENTER is within the
-            # player radius (16) of the sampled wall point
+            # mark the cell the wall point is IN (a segment crossing a cell
+            # makes that cell unwalkable regardless of center distance), plus
+            # neighbors whose CENTER is within the player radius (16)
             for dy in (-1, 0, 1):
                 for dx in (-1, 0, 1):
                     ny, nx = cy + dy, cx + dx
                     if 0 <= nx < self.w and 0 <= ny < self.h:
+                        if dx == 0 and dy == 0:
+                            self.wall[ny][nx] = True
+                            continue
                         wx = (nx + 0.5) * CELL + self.x0
                         wy = (ny + 0.5) * CELL + self.y0
                         if (wx - sx)**2 + (wy - sy)**2 < 16.0 * 16.0:

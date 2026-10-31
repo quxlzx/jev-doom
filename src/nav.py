@@ -62,6 +62,7 @@ class NavMap:
         # NOTE: no full-cell inflation: it pinches the narrow pit-rim
         # walkways (~64 units) shut. _raster marks cells whose CENTER is
         # within 16 units (player radius) of the wall line instead.
+        self._clearance = self._clearance_map()
 
     def _inflate(self):
         w, wall = self.w, self.wall
@@ -136,6 +137,36 @@ class NavMap:
                 best, bestd = c, d
         return best, bestd, dist
 
+    def _clearance_map(self):
+        """BFS distance (in cells) from every free cell to the nearest wall."""
+        from collections import deque
+        d = [[-1] * self.w for _ in range(self.h)]
+        q = deque()
+        for y in range(self.h):
+            for x in range(self.w):
+                if self.wall[y][x]:
+                    d[y][x] = 0
+                    q.append((x, y))
+        while q:
+            x, y = q.popleft()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.w and 0 <= ny < self.h and d[ny][nx] == -1:
+                    d[ny][nx] = d[y][x] + 1
+                    q.append((nx, ny))
+        return d
+
+    def _wall_pen(self, c):
+        """Cost penalty for cells hugging walls: routes prefer corridor centers."""
+        cl = self._clearance[c[1]][c[0]]
+        if cl < 0:
+            return 3.0
+        if cl <= 1:
+            return 2.0   # ~16-32 units from a wall: scrape zone
+        if cl <= 2:
+            return 0.6   # ~48 units: tight
+        return 0.0
+
     def astar(self, a, b):
         if not (self.free(a) and self.free(b)):
             return None
@@ -155,7 +186,7 @@ class NavMap:
                     continue
                 if dx and dy and (not self.free((cur[0] + dx, cur[1])) or not self.free((cur[0], cur[1] + dy))):
                     continue
-                ng = gs[cur] + (1.41 if dx and dy else 1)
+                ng = gs[cur] + (1.41 if dx and dy else 1) + self._wall_pen(n)
                 if n in gs and ng >= gs[n]:
                     continue
                 came[n], gs[n] = cur, ng

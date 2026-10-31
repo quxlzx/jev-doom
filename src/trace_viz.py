@@ -15,9 +15,13 @@ import vizdoom as zd
 GV = zd.GameVariable
 
 
-def run_traced(ep, skill, seed):
+def run_traced(ep, skill, seed, spine_kind="heur"):
     env = DoomEnv(skill=skill, scenario="deadly_corridor")
-    spine = ReflexSpine(rng=random.Random(seed))
+    if spine_kind == "model":
+        from spine_model import ModelSpine
+        spine = ModelSpine()
+    else:
+        spine = ReflexSpine(rng=random.Random(seed))
     brain = make_brain(prefer_llm=False) or RuleBrain()
     env.reset()
     goal = brain.think(env.perceive())
@@ -118,10 +122,11 @@ def main():
     p.add_argument("--episodes", type=int, default=3)
     p.add_argument("--skill", type=int, default=1)
     p.add_argument("--out-dir", default=os.path.join(os.path.dirname(__file__), "..", "traces"))
+    p.add_argument("--spine", choices=["heur", "model"], default="heur")
     a = p.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
     for ep in range(a.episodes):
-        trace, walls = run_traced(ep, a.skill, seed=100 + ep)
+        trace, walls = run_traced(ep, a.skill, seed=100 + ep, spine_kind=a.spine)
         with open(os.path.join(a.out_dir, f"trace_ep{ep}.json"), "w") as f:
             json.dump(trace, f)
         render(trace, walls, os.path.join(a.out_dir, f"map_ep{ep}.png"), ep)

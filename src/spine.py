@@ -118,19 +118,12 @@ class ReflexSpine:
                                (b > 0) != (self._last_nav_b > 0))
                     moved = (self._last_pos is not None and
                              (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 >= 100)
-                    same_dir = (self._last_nav_b is not None and
-                                (b > 0) == (self._last_nav_b > 0))
-                    if flipped and not moved:
-                        self._turn_shrink = max(6, int(self._turn_shrink * 0.5))
-                        hold = self._turn_shrink
-                    elif same_dir and not moved:
-                        # consistent bearing, no oscillation: full turn needed;
-                        # shrinking here deadlocks the aim (hold too small to rotate)
-                        hold = max(8, min(40, int(abs(b) / 3.5) + 6))
-                        self._turn_shrink = hold
-                    else:
-                        hold = max(8, min(40, int(abs(b) / 3.5) + 6))
-                        self._turn_shrink = hold
+                    # full proportional turn, always. The old shrink damping
+                    # (a band-aid for target-flip oscillation, which target-
+                    # lock hysteresis already fixes) caused turn limit-cycles:
+                    # shrunk holds rotate ~0deg and the bearing never converges.
+                    hold = max(8, min(40, int(abs(b) / 3.5) + 6))
+                    self._turn_shrink = hold
                     self._last_nav_b = b
                     if self._stuck:
                         self._blocked_streak += 1

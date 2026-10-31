@@ -62,9 +62,11 @@ class ReflexSpine:
                        (ws.py - self._pos_hist[0][1])**2 < 6400)
 
         target = ws.nearest_visible_monster()
-        if self._stuck and ws.nav_bearing is not None:
-            # mission > mirage: an unreachable monster (window/ledge, visible or
-            # not) must not veto the exit mission; force the navigate branch
+        if (self._stuck and ws.nav_bearing is not None and
+                (target is None or target.dist > 250)):
+            # mission > mirage: a FAR unreachable monster (window/ledge) must
+            # not veto the exit mission. But a monster within 250 units may be
+            # the physical blocker — monsters are solid; shoot through it.
             stance = "navigate"
             target = None
         hold = 2
@@ -105,7 +107,9 @@ class ReflexSpine:
             # must not drop us into legacy wall-hugging (route exists: walk it)
             if ws.nav_bearing is not None:
                 b = ws.nav_bearing
-                if abs(b) > 10:
+                # 20-deadband: Doom wall-slide handles small errors; turning
+                # to exact alignment limit-cycles (min hold overshoots ±15deg)
+                if abs(b) > 20:
                     turn = "turn_left" if b > 0 else "turn_right"
                     probs[turn] = 0.85
                     # windup varies by scenario; damp hard when bearing oscillates
@@ -141,8 +145,15 @@ class ReflexSpine:
                             probs["move_forward"] = 0.9; hold = 30
                             reason = "nav: oscill sweep -> ride door open"
                         elif phase == 3:
-                            probs["move_forward"] = 0.9; hold = 14
-                            reason = "nav: oscill sweep -> step"
+                            # strafe around convex corners: forward+turn never
+                            # clears them; lateral movement does
+                            if abs(b) > 50:
+                                side = "move_left" if b > 0 else "move_right"
+                                probs[side] = 0.9; hold = 14
+                                reason = "nav: oscill sweep -> strafe to path"
+                            else:
+                                probs["move_forward"] = 0.9; hold = 14
+                                reason = "nav: oscill sweep -> step"
                         elif phase == 0:
                             probs["turn_right"] = 0.9; hold = 20
                             reason = "nav: oscill near spawn -> hug (no USE: teleport)"
@@ -178,8 +189,15 @@ class ReflexSpine:
                                 probs["move_forward"] = 0.9; hold = 30
                                 reason = "nav: stuck sweep -> ride door open"
                             elif phase == 3:
-                                probs["move_forward"] = 0.9; hold = 14
-                                reason = "nav: stuck sweep -> step"
+                                # strafe around corners: forward-into-wall + turn
+                                # never clears a convex corner; lateral does
+                                if abs(b) > 50:
+                                    side = "move_left" if b > 0 else "move_right"
+                                    probs[side] = 0.9; hold = 14
+                                    reason = "nav: stuck sweep -> strafe to path"
+                                else:
+                                    probs["move_forward"] = 0.9; hold = 14
+                                    reason = "nav: stuck sweep -> step"
                             elif phase == 0:
                                 probs["turn_right"] = 0.9; hold = 20
                                 reason = "nav: stuck sweep -> hug (no USE)"

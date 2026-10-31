@@ -122,8 +122,8 @@ class DoomEnv:
         # deadly_corridor is a FIXED map whose pit bridge the sector grid
         # cannot model, so route a known waypoint chain (classic E1M1 run):
         # door -> courtyard east -> east stair head -> pit floor -> exit.
-        WAYPOINTS = [(688, -192), (1560, -650), (1560, -900),
-                     (1720, -1190)]
+        WAYPOINTS = [(688, -192), (1300, -230), (1560, -650),
+                     (1560, -900), (1720, -1190)]
         self._nav_age += 1
         if self.nav is None or self._nav_age >= 20:
             self.nav = NavMap(st.sectors)

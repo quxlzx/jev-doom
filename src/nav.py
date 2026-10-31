@@ -93,7 +93,7 @@ class NavMap:
                     if 0 <= nx < self.w and 0 <= ny < self.h:
                         wx = (nx + 0.5) * CELL + self.x0
                         wy = (ny + 0.5) * CELL + self.y0
-                        if (wx - sx)**2 + (wy - sy)**2 < 20.0 * 20.0:
+                        if (wx - sx)**2 + (wy - sy)**2 < 16.0 * 16.0:
                             self.wall[ny][nx] = True
 
     def cell(self, x, y):

@@ -116,10 +116,11 @@ Answer:"""
             content_lps = (out.get("choices", [{}])[0].get("logprobs", {})
                               .get("content", []))
             dist = {}
-            for pos in content_lps:  # grammar emits [ first; digit is a later token
+            for pos in content_lps:  # grammar may emit "[1]" as ONE token or
+                # "[", "1", "]" as three: strip brackets/spaces to find the digit
                 for e in pos.get("top_logprobs", []):
-                    tok = e.get("token", "").strip()
-                    if tok in "123" and len(tok) == 1:
+                    tok = e.get("token", "").strip().strip("[]").strip()
+                    if tok in ("1", "2", "3"):
                         dist[int(tok) - 1] = math.exp(e.get("logprob", -9.9))
             z = sum(dist.values()) or 1.0
             dist = {k: v / z for k, v in dist.items()}

@@ -23,8 +23,11 @@ class ModelSpine:
         self.base_url = base.rstrip("/")
         self.timeout = timeout
         self.fallback = ReflexSpine()
+        self.conf_floor = float(os.environ.get("JEVDOOM_CONF_FLOOR", "0.5"))
 
     PROMPT_TMPL = """Pick the best Doom action. Reply with its bracketed number.
+Criteria: fire only if target_aligned yes AND attack_ready yes; if target
+bearing is beyond 8 degrees, turn first; retreat if health below 30.
 State:
 Stance: {stance}
 Health {health:.0f}, armor {armor:.0f}, ammo {ammo:.0f}, attack_ready {ready}.
@@ -84,7 +87,8 @@ Answer:"""
         ranked = sorted(h.probs, key=lambda a: -h.probs[a])[:3]
         target_line, nearest_line, pickup_line, nearest = self._state_lines(ws)
         prompt = self.build_prompt(ws, goal, h)
-        body = {"prompt": prompt, "temperature": 0.0, "n_predict": 3}
+        body = {"prompt": prompt, "temperature": 0.0, "n_predict": 3,
+                "top_logprobs": 4}
 
         def hold_for(action: str) -> int:
             t = ws.nearest_visible_monster() or nearest
@@ -106,16 +110,32 @@ Answer:"""
             if digit is None:
                 raise ValueError(f"no pick in {content!r}")
             idx = int(digit) - 1
+            # real calibrated confidence: softmax of grammar-masked top logprobs
+            # (Jev-style; replaces the old agree?0.9:0.35 fake)
+            import math
+            lp = (out.get("choices", [{}])[0].get("logprobs", {})
+                     .get("content", [{}])[0].get("top_logprobs", []))
+            dist = {}
+            for e in lp:
+                tok = e.get("token", "").strip()
+                if tok in "123" and len(tok) == 1:
+                    dist[int(tok) - 1] = math.exp(e.get("logprob", -9.9))
+            z = sum(dist.values()) or 1.0
+            dist = {k: v / z for k, v in dist.items()}
+            conf = dist.get(idx, 0.5)
+            lowconf = conf < self.conf_floor
+            if lowconf and ranked:
+                idx = 0  # defer to the heuristic when the model is unsure
             action = ranked[idx] if idx < len(ranked) else h.action
             agree = idx == 0
-            conf = 0.9 if agree else 0.35
             probs = dict(h.probs)
-            probs[action] = max(probs.get(action, 0.0), conf)
+            probs[action] = max(probs.get(action, 0.0), max(conf, 0.4))
             total = sum(probs.values()) or 1.0
             probs = {k: v / total for k, v in probs.items()}
             conf = probs[action]
+            tag = "lowconf->heur" if lowconf else f"p={dist.get(int(digit)-1, 0):.2f}"
             return Decision(action=action, probs=probs, confidence=conf,
-                            reason=f"model#{digit}{'~' if agree else '!='}heur#1 "
+                            reason=f"model#{digit}{'~' if agree else '!='}heur#1 {tag} "
                                    f"({h.reason})",
                             hold_tics=hold_for(action))
         except Exception as e:

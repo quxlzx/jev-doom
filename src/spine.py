@@ -94,7 +94,27 @@ class ReflexSpine:
                         hold = max(8, min(40, int(abs(b) / 3.5) + 6))
                         self._turn_shrink = hold
                     self._last_nav_b = b
-                    reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f} hold={hold}"
+                    # oscillating turns at a closed door never reach the blocked
+                    # ladder; feed the net-displacement detector here too
+                    self._pos_hist.append((ws.px, ws.py))
+                    if len(self._pos_hist) > 9:
+                        self._pos_hist.pop(0)
+                    if len(self._pos_hist) >= 9:
+                        ox, oy = self._pos_hist[0]
+                        if (ws.px - ox)**2 + (ws.py - oy)**2 < 6400:
+                            self._blocked_streak += 1
+                            s = self._blocked_streak
+                            if s % 2 == 0:
+                                probs["use"] = 0.9; hold = 5
+                                reason = "nav: oscill-stuck -> USE"
+                            else:
+                                turn = "turn_left" if b > 0 else "turn_right"
+                                probs[turn] = 0.9; hold = 12
+                                reason = "nav: oscill-stuck -> turn"
+                        else:
+                            reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f} hold={hold}"
+                    else:
+                        reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f} hold={hold}"
                 else:
                     # Doom accelerates from standstill: judge "blocked" only after a
                     # long enough hold, else acceleration looks like a wall

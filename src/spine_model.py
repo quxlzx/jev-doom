@@ -113,13 +113,14 @@ Answer:"""
             # real calibrated confidence: softmax of grammar-masked top logprobs
             # (Jev-style; replaces the old agree?0.9:0.35 fake)
             import math
-            lp = (out.get("choices", [{}])[0].get("logprobs", {})
-                     .get("content", [{}])[0].get("top_logprobs", []))
+            content_lps = (out.get("choices", [{}])[0].get("logprobs", {})
+                              .get("content", []))
             dist = {}
-            for e in lp:
-                tok = e.get("token", "").strip()
-                if tok in "123" and len(tok) == 1:
-                    dist[int(tok) - 1] = math.exp(e.get("logprob", -9.9))
+            for pos in content_lps:  # grammar emits [ first; digit is a later token
+                for e in pos.get("top_logprobs", []):
+                    tok = e.get("token", "").strip()
+                    if tok in "123" and len(tok) == 1:
+                        dist[int(tok) - 1] = math.exp(e.get("logprob", -9.9))
             z = sum(dist.values()) or 1.0
             dist = {k: v / z for k, v in dist.items()}
             conf = dist.get(idx, 0.5)

@@ -72,6 +72,7 @@ export JEVDOOM_BRAIN_MODEL=qwen3-8b
 | round-2 spine (take_cover-trained) | 0 | 4 | 1 |
 | reflex spine + map, session start | 0 | 0 | 0 (stuck at door) |
 | reflex spine + map, session end | 0 | 17 | 2 |
+| **R7 spine (corridor-trained, 81k demos)** | 0 | **18** | 4 |
 
 take_cover (skill 4, 5 episodes): random 0 kills, heuristic+rule 3,
 1.7B spine+rule 4, 1.7B spine+8B brain 6.

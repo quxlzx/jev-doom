@@ -75,7 +75,7 @@ def _to_player_frame(wx: float, wy: float, wz: float, px: float, py: float, angl
 class DoomEnv:
     SCENARIOS = {
         "take_cover": (os.path.join(zd.scenarios_path, "take_cover.cfg"), 350),
-        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 4200),  # 2min: path is ~3500 units
+        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 6300),  # 3min: full traverse + fights
     }
 
     def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None,
@@ -109,6 +109,8 @@ class DoomEnv:
             os.makedirs(record_dir, exist_ok=True)
         self.nav = None
         self.nav_goal = None
+        self._spawn_cell = None
+        self._wp_i = 0
         self._nav_age = 999
         self._prev_hits = 0.0
 
@@ -117,21 +119,36 @@ class DoomEnv:
         from nav import NavMap
         if self.scenario != "deadly_corridor":
             return None, 0.0
+        # deadly_corridor is a FIXED map whose pit bridge the sector grid
+        # cannot model, so route a known waypoint chain (classic E1M1 run):
+        # door -> courtyard east -> east stair head -> pit floor -> exit.
+        WAYPOINTS = [(688, -192), (1560, -650), (1560, -900),
+                     (1720, -1190)]
         self._nav_age += 1
         if self.nav is None or self._nav_age >= 20:
             self.nav = NavMap(st.sectors)
-            start = self.nav.cell(px, py)
-            self.nav_goal, _, _ = self.nav.reachable_farthest(start)
             self._nav_age = 0
+        # advance to the first waypoint not yet reached (150-unit radius)
+        if not hasattr(self, "_wp_i"):
+            self._wp_i = 0
+        while (self._wp_i < len(WAYPOINTS) - 1 and
+               (px - WAYPOINTS[self._wp_i][0])**2 +
+               (py - WAYPOINTS[self._wp_i][1])**2 < 150**2):
+            self._wp_i += 1
+        wx, wy = WAYPOINTS[self._wp_i]
+        ex, ey = WAYPOINTS[-1]
         start = self.nav.cell(px, py)
         if not self.nav.free(start):
             self.nav._clear_disk(start)
-        path = self.nav.astar(start, self.nav_goal)
-        if not path or len(path) < 2:
-            return None, 0.0
-        _, bearing = self.nav.next_waypoint((px, py), angle, path)
-        gx, gy = self.nav.world(*self.nav_goal)
-        return bearing, math.hypot(gx - px, gy - py)
+        gcell = self.nav.cell(wx, wy)
+        path = self.nav.astar(start, gcell)
+        if path and len(path) >= 2:
+            _, bearing = self.nav.next_waypoint((px, py), angle, path)
+        else:
+            bearing = math.degrees(math.atan2(wy - py, wx - px)) - angle
+            while bearing > 180: bearing -= 360
+            while bearing < -180: bearing += 360
+        return bearing, math.hypot(ex - px, ey - py)
 
     def reset(self, recording_file: str | None = None) -> None:
         try:

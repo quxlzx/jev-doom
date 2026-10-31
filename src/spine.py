@@ -62,9 +62,9 @@ class ReflexSpine:
                        (ws.py - self._pos_hist[0][1])**2 < 6400)
 
         target = ws.nearest_visible_monster()
-        if self._stuck and ws.nav_bearing is not None and target is not None:
-            # mission > mirage: a visible-but-unreachable monster (window/ledge)
-            # must not veto the door mission; force the navigate branch
+        if self._stuck and ws.nav_bearing is not None:
+            # mission > mirage: an unreachable monster (window/ledge, visible or
+            # not) must not veto the exit mission; force the navigate branch
             stance = "navigate"
             target = None
         hold = 2
@@ -100,8 +100,10 @@ class ReflexSpine:
                 hold = turn_hold(b)
                 reason = f"acquire {target.name} bearing={b:.0f} d={dist:.0f}"
         else:
-            # no monster on screen: use the world map to orient, then close distance
-            if stance == "navigate" and ws.nav_bearing is not None:
+            # no monster on screen: use the world map to orient, then close
+            # distance. Navigation is stance-INDEPENDENT: the brain's mood
+            # must not drop us into legacy wall-hugging (route exists: walk it)
+            if ws.nav_bearing is not None:
                 b = ws.nav_bearing
                 if abs(b) > 10:
                     turn = "turn_left" if b > 0 else "turn_right"
@@ -133,9 +135,12 @@ class ReflexSpine:
                         if phase == 0 and not near_spawn:
                             probs["use"] = 0.9; hold = 5
                             reason = "nav: oscill sweep -> USE"
-                        elif phase == 2:
-                            # the gap may already be open: sweeps must WALK,
-                            # not just poke and turn forever
+                        elif phase == 1:
+                            # doors rise slowly and auto-close: press USE then
+                            # immediately ride forward through while it is open
+                            probs["move_forward"] = 0.9; hold = 30
+                            reason = "nav: oscill sweep -> ride door open"
+                        elif phase == 3:
                             probs["move_forward"] = 0.9; hold = 14
                             reason = "nav: oscill sweep -> step"
                         elif phase == 0:
@@ -164,13 +169,15 @@ class ReflexSpine:
                             probs["turn_right"] = 0.9; hold = 48
                             reason = "nav: stuck -> pivot sweep"
                         elif s >= 6:
-                            # sweep: USE / turn / STEP / turn — doors open AND
-                            # open gaps get walked through
+                            # sweep: USE / RIDE forward / turn / step
                             phase = s % 4
                             if phase == 0 and not near_spawn:
                                 probs["use"] = 0.9; hold = 5
                                 reason = "nav: stuck sweep -> USE"
-                            elif phase == 2:
+                            elif phase == 1:
+                                probs["move_forward"] = 0.9; hold = 30
+                                reason = "nav: stuck sweep -> ride door open"
+                            elif phase == 3:
                                 probs["move_forward"] = 0.9; hold = 14
                                 reason = "nav: stuck sweep -> step"
                             elif phase == 0:
@@ -208,7 +215,7 @@ class ReflexSpine:
                             reason = f"nav: advance, exit d={ws.nav_dist:.0f}"
                 probs_navigate = True
             elif stance == "navigate" and ws.monsters:
-                far = [m for m in ws.monsters if m.dist < 1500]
+                far = [m for m in ws.monsters if m.dist < 700]  # don't chase ghosts
                 guide = max(far or ws.monsters, key=lambda m: m.dist)
                 b = bearing_deg(guide)
                 if abs(b) > 12:
@@ -277,11 +284,8 @@ class ReflexSpine:
                     blocked = (dx * dx + dy * dy) < 64  # <8 units moved since last step
                 self._last_pos = (ws.px, ws.py)
                 pk = min(ws.pickups, key=lambda p: p.dist, default=None)
-                if pk is not None and pk.dist < 350 and abs(bearing_deg(pk)) > 20 and ws.health < 80:
-                    turn = "turn_left" if bearing_deg(pk) > 0 else "turn_right"
-                    probs[turn] = 0.7
-                    hold = min(40, 8 + int(abs(bearing_deg(pk)) / 3.5))
-                    reason = f"explore: route to {pk.name} d={pk.dist:.0f}"
+                if False:  # pickup detour removed: spun in circles chasing bonuses
+                    pass
                 elif blocked:
                     self._blocked_streak += 1
                     # jittered wall-hug: pure right-hand rule cycles on this map
@@ -311,7 +315,12 @@ class ReflexSpine:
         if stance in ("defensive", "retreat") and target is not None:
             # disengage dominates: back up while firing, stop turning in place
             probs["move_back"] = max(probs.get("move_back", 0) + 0.6, 0.55)
-            probs["attack"] *= 0.7
+            if ws.attack_ready and abs(bearing_deg(target)) < 12:
+                # keep shooting while backing up: a retreating agent that
+                # stops firing just dies cornered
+                probs["attack"] = max(probs.get("attack", 0.0), 0.75)
+            else:
+                probs["attack"] *= 0.7
             for t in ("turn_left", "turn_right"):
                 probs[t] *= 0.25
 

@@ -14,11 +14,39 @@ CELL = 24  # grid resolution in map units
 
 class NavMap:
     def __init__(self, sectors):
+        from collections import defaultdict
+        # a blocking line shared by two sectors whose floors differ by <=24 is
+        # a STAIR STEP (climbable), not a wall: deadly_corridor's exit hides
+        # behind stairs that ViZDoom reports as blocking lines
+        line_sectors = defaultdict(list)
+        for s in sectors:
+            for ln in s.lines:
+                key = tuple(sorted([(round(ln.x1), round(ln.y1)),
+                                    (round(ln.x2), round(ln.y2))]))
+                line_sectors[key].append(s)
+
+        def climbable(ln):
+            key = tuple(sorted([(round(ln.x1), round(ln.y1)),
+                                (round(ln.x2), round(ln.y2))]))
+            adj = line_sectors.get(key, [])
+            if len(adj) < 2:
+                return False
+            a, b = adj[0], adj[1]
+            fdiff = abs(a.floor_height - b.floor_height)
+            # steps only: the pit rim LOOKS like a drop but has a wall on
+            # top; only the real staircases (fdiff <= 24) connect legally
+            return 0 < fdiff <= 24
+
         xs, ys = [], []
         segs = []
         for s in sectors:
             for ln in s.lines:
                 if not ln.is_blocking:
+                    continue
+                if climbable(ln):
+                    # steps still count for the map extent but not as walls
+                    xs += [ln.x1, ln.x2]
+                    ys += [ln.y1, ln.y2]
                     continue
                 x1, y1 = ln.x1, ln.y1
                 x2, y2 = ln.x2, ln.y2
@@ -31,7 +59,9 @@ class NavMap:
         self.wall = [[False] * self.w for _ in range(self.h)]
         for x1, y1, x2, y2 in segs:
             self._raster(x1, y1, x2, y2)
-        self._inflate()  # walls are lethal to a ~16-unit radius player
+        # NOTE: no full-cell inflation: it pinches the narrow pit-rim
+        # walkways (~64 units) shut. _raster marks cells whose CENTER is
+        # within 16 units (player radius) of the wall line instead.
 
     def _inflate(self):
         w, wall = self.w, self.wall
@@ -51,10 +81,20 @@ class NavMap:
         n = max(1, int(d / (CELL / 3)))
         for i in range(n + 1):
             t = i / n
-            cx = int(((x1 + (x2 - x1) * t) - self.x0) / CELL)
-            cy = int(((y1 + (y2 - y1) * t) - self.y0) / CELL)
-            if 0 <= cx < self.w and 0 <= cy < self.h:
-                self.wall[cy][cx] = True
+            sx = x1 + (x2 - x1) * t
+            sy = y1 + (y2 - y1) * t
+            cx = int((sx - self.x0) / CELL)
+            cy = int((sy - self.y0) / CELL)
+            # mark this cell plus any neighbor whose CENTER is within the
+            # player radius (16) of the sampled wall point
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    ny, nx = cy + dy, cx + dx
+                    if 0 <= nx < self.w and 0 <= ny < self.h:
+                        wx = (nx + 0.5) * CELL + self.x0
+                        wy = (ny + 0.5) * CELL + self.y0
+                        if (wx - sx)**2 + (wy - sy)**2 < 20.0 * 20.0:
+                            self.wall[ny][nx] = True
 
     def cell(self, x, y):
         return (int((x - self.x0) / CELL), int((y - self.y0) / CELL))

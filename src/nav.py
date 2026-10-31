@@ -9,7 +9,7 @@ from __future__ import annotations
 import heapq
 import math
 
-CELL = 24  # grid resolution in map units
+CELL = 16  # grid resolution in map units (narrow pit-rim walkways need it)
 
 
 class NavMap:

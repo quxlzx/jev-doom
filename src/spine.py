@@ -41,6 +41,7 @@ class ReflexSpine:
         self._lock_age = 999
         self._last_pos = None      # blocked detection for wall-following explore
         self._pos_hist = []        # net-displacement stuck detector (wall sliding)
+        self._spawn = None         # first-seen position (spawn room)
         self._blocked_streak = 0
         self._last_nav_b = None    # nav bearing damping
         self._turn_shrink = 12
@@ -48,7 +49,24 @@ class ReflexSpine:
     def decide(self, ws, goal: dict) -> Decision:
         probs = {a: 0.0 for a in ACTIONS}
         stance = goal.get("stance", "aggressive")
+        # global net-displacement stuck detector: a monster behind a window
+        # can hijack the aim branch forever while the exit stays behind a door
+        if self._spawn is None:
+            self._spawn = (ws.px, ws.py)  # spawn area has a teleporter: never USE here
+        near_spawn = (ws.px - self._spawn[0])**2 + (ws.py - self._spawn[1])**2 < 90000
+        self._pos_hist.append((ws.px, ws.py))
+        if len(self._pos_hist) > 9:
+            self._pos_hist.pop(0)
+        self._stuck = (len(self._pos_hist) >= 9 and
+                       (ws.px - self._pos_hist[0][0])**2 +
+                       (ws.py - self._pos_hist[0][1])**2 < 6400)
+
         target = ws.nearest_visible_monster()
+        if self._stuck and ws.nav_bearing is not None and target is not None:
+            # mission > mirage: a visible-but-unreachable monster (window/ledge)
+            # must not veto the door mission; force the navigate branch
+            stance = "navigate"
+            target = None
         hold = 2
 
         # --- reflex: flinch on damage even if the brain is asleep
@@ -65,10 +83,17 @@ class ReflexSpine:
             aligned = abs(b) < 6.0
 
             if aligned and ws.attack_ready and dist < 1600:
-                probs["attack"] = 0.85 if stance == "aggressive" else 0.6
-                probs["move_left"] = 0.07
-                probs["move_right"] = 0.07
-                reason = f"fire on {target.name} d={dist:.0f}"
+                if dist < 500 and self.rng.random() < 0.3:
+                    # strafe-dodge while trading shots: barons telegraph fireballs
+                    side = "move_left" if self.rng.random() < 0.5 else "move_right"
+                    probs[side] = 0.8; probs["attack"] = 0.5
+                    hold = 8
+                    reason = f"strafe vs {target.name} d={dist:.0f}"
+                else:
+                    probs["attack"] = 0.85 if stance == "aggressive" else 0.6
+                    probs["move_left"] = 0.07
+                    probs["move_right"] = 0.07
+                    reason = f"fire on {target.name} d={dist:.0f}"
             else:
                 turn = "turn_left" if b > 0 else "turn_right"
                 probs[turn] = 0.9
@@ -87,32 +112,39 @@ class ReflexSpine:
                                (b > 0) != (self._last_nav_b > 0))
                     moved = (self._last_pos is not None and
                              (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 >= 100)
+                    same_dir = (self._last_nav_b is not None and
+                                (b > 0) == (self._last_nav_b > 0))
                     if flipped and not moved:
                         self._turn_shrink = max(6, int(self._turn_shrink * 0.5))
                         hold = self._turn_shrink
+                    elif same_dir and not moved:
+                        # consistent bearing, no oscillation: full turn needed;
+                        # shrinking here deadlocks the aim (hold too small to rotate)
+                        hold = max(8, min(40, int(abs(b) / 3.5) + 6))
+                        self._turn_shrink = hold
                     else:
                         hold = max(8, min(40, int(abs(b) / 3.5) + 6))
                         self._turn_shrink = hold
                     self._last_nav_b = b
-                    # oscillating turns at a closed door never reach the blocked
-                    # ladder; feed the net-displacement detector here too
-                    self._pos_hist.append((ws.px, ws.py))
-                    if len(self._pos_hist) > 9:
-                        self._pos_hist.pop(0)
-                    if len(self._pos_hist) >= 9:
-                        ox, oy = self._pos_hist[0]
-                        if (ws.px - ox)**2 + (ws.py - oy)**2 < 6400:
-                            self._blocked_streak += 1
-                            s = self._blocked_streak
-                            if s % 2 == 0:
-                                probs["use"] = 0.9; hold = 5
-                                reason = "nav: oscill-stuck -> USE"
-                            else:
-                                turn = "turn_left" if b > 0 else "turn_right"
-                                probs[turn] = 0.9; hold = 12
-                                reason = "nav: oscill-stuck -> turn"
+                    if self._stuck:
+                        self._blocked_streak += 1
+                        s = self._blocked_streak
+                        phase = s % 4
+                        if phase == 0 and not near_spawn:
+                            probs["use"] = 0.9; hold = 5
+                            reason = "nav: oscill sweep -> USE"
+                        elif phase == 2:
+                            # the gap may already be open: sweeps must WALK,
+                            # not just poke and turn forever
+                            probs["move_forward"] = 0.9; hold = 14
+                            reason = "nav: oscill sweep -> step"
+                        elif phase == 0:
+                            probs["turn_right"] = 0.9; hold = 20
+                            reason = "nav: oscill near spawn -> hug (no USE: teleport)"
                         else:
-                            reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f} hold={hold}"
+                            turn = "turn_left" if b > 0 else "turn_right"
+                            probs[turn] = 0.9; hold = 12
+                            reason = "nav: oscill sweep -> turn"
                     else:
                         reason = f"nav: bearing={b:.0f} exit d={ws.nav_dist:.0f} hold={hold}"
                 else:
@@ -121,15 +153,10 @@ class ReflexSpine:
                     blocked = (self._last_pos is not None and
                                (ws.px - self._last_pos[0])**2 + (ws.py - self._last_pos[1])**2 < 100)
                     self._last_pos = (ws.px, ws.py)
-                    # sliding along a wall resets per-step blocked; net displacement over
-                    # 8 decisions catches oscillating-in-place (e.g. stalled at a door)
-                    self._pos_hist.append((ws.px, ws.py))
-                    if len(self._pos_hist) > 9:
-                        self._pos_hist.pop(0)
-                    if not blocked and len(self._pos_hist) >= 9:
-                        ox, oy = self._pos_hist[0]
-                        if (ws.px - ox)**2 + (ws.py - oy)**2 < 6400:
-                            blocked = True
+                    # sliding along a wall resets per-step blocked; the global
+                    # net-displacement detector catches oscillating-in-place
+                    if not blocked and self._stuck:
+                        blocked = True
                     if blocked:
                         self._blocked_streak += 1
                         s = self._blocked_streak
@@ -137,11 +164,18 @@ class ReflexSpine:
                             probs["turn_right"] = 0.9; hold = 48
                             reason = "nav: stuck -> pivot sweep"
                         elif s >= 6:
-                            # USE-sweep: alternate pressing USE with small turns so
-                            # every facing gets tried; ends when a door opens
-                            if s % 2 == 0:
+                            # sweep: USE / turn / STEP / turn — doors open AND
+                            # open gaps get walked through
+                            phase = s % 4
+                            if phase == 0 and not near_spawn:
                                 probs["use"] = 0.9; hold = 5
                                 reason = "nav: stuck sweep -> USE"
+                            elif phase == 2:
+                                probs["move_forward"] = 0.9; hold = 14
+                                reason = "nav: stuck sweep -> step"
+                            elif phase == 0:
+                                probs["turn_right"] = 0.9; hold = 20
+                                reason = "nav: stuck sweep -> hug (no USE)"
                             else:
                                 probs["turn_right"] = 0.9; hold = 12
                                 reason = "nav: stuck sweep -> turn"
@@ -153,9 +187,25 @@ class ReflexSpine:
                             probs["turn_right"] = 0.7; probs["turn_left"] = 0.2; hold = 34
                             reason = f"nav: blocked -> turn (pos {ws.px:.0f},{ws.py:.0f})"
                     else:
-                        probs["move_forward"] = 0.9
-                        hold = 20  # long holds keep Doom momentum
-                        reason = f"nav: advance, exit d={ws.nav_dist:.0f}"
+                        # weapon pickups are free combat power: detour while aligned
+                        WEAPONS = {"Shotgun", "Chaingun", "PlasmaGun", "BFG10K"}
+                        pk = min(ws.pickups, key=lambda q: q.dist, default=None)
+                        want = (pk is not None and pk.dist < 450 and
+                                (pk.name in WEAPONS or ws.health < 60 or ws.ammo < 10))
+                        if want and abs(bearing_deg(pk)) > 15:
+                            pb = bearing_deg(pk)
+                            turn = "turn_left" if pb > 0 else "turn_right"
+                            probs[turn] = 0.9
+                            hold = max(8, min(40, 8 + int(abs(pb) / 3.5)))
+                            reason = f"nav: face pickup {pk.name} d={pk.dist:.0f}"
+                        elif want:
+                            probs["move_forward"] = 0.9
+                            hold = 14
+                            reason = f"nav: grab {pk.name} d={pk.dist:.0f}"
+                        else:
+                            probs["move_forward"] = 0.9
+                            hold = 20  # long holds keep Doom momentum
+                            reason = f"nav: advance, exit d={ws.nav_dist:.0f}"
                 probs_navigate = True
             elif stance == "navigate" and ws.monsters:
                 far = [m for m in ws.monsters if m.dist < 1500]

@@ -137,9 +137,32 @@ class ReflexSpine:
             # must not drop us into legacy wall-hugging (route exists: walk it)
             if ws.nav_bearing is not None:
                 b = ws.nav_bearing
-                # 20-deadband: Doom wall-slide handles small errors; turning
-                # to exact alignment limit-cycles (min hold overshoots ±15deg)
-                if abs(b) > 20:
+                # waypoint behind: REVERSE, don't turn around. A 180-deg
+                # pivot overshoots and the bearing flips -> wavering loop
+                # (observed at the pit west stairs: 60+ wasted decisions).
+                if abs(b) > 135:
+                    # reverse, but if reversing makes no progress, commit a
+                    # full turn (observed: 600 decisions reversing in place)
+                    self._rev_stuck = getattr(self, "_rev_stuck", [None, 0])
+                    moved = (self._last_pos is not None and
+                             (ws.px - self._last_pos[0])**2 +
+                             (ws.py - self._last_pos[1])**2 >= 100)
+                    if self._rev_stuck[0] is not None and not moved:
+                        self._rev_stuck[1] += 1
+                    else:
+                        self._rev_stuck = [ws.px, 0]
+                    if self._rev_stuck[1] >= 3:
+                        turn = "turn_left" if b > 0 else "turn_right"
+                        probs[turn] = 0.9
+                        hold = max(9, min(48, 7 + int(abs(b) / 4.5) + 2))
+                        reason = f"nav: reverse stuck -> commit turn ({b:.0f})"
+                    else:
+                        probs["move_back"] = 0.9
+                        hold = 14
+                        reason = f"nav: waypoint behind ({b:.0f}) -> reverse"
+                elif abs(b) > 20:
+                    # 20-deadband: Doom wall-slide handles small errors; turning
+                    # to exact alignment limit-cycles (min hold overshoots ±15deg)
                     turn = "turn_left" if b > 0 else "turn_right"
                     probs[turn] = 0.85
                     # windup varies by scenario; damp hard when bearing oscillates
@@ -200,8 +223,14 @@ class ReflexSpine:
                         self._blocked_streak += 1
                         s = self._blocked_streak
                         if s >= 20:
-                            probs["turn_right"] = 0.9; hold = 48
-                            reason = "nav: stuck -> pivot sweep"
+                            # pivot AND step: a sweep that only spins never
+                            # escapes; alternate scan / advance
+                            if s % 2 == 0:
+                                probs["turn_right"] = 0.9; hold = 24
+                                reason = "nav: stuck -> pivot scan"
+                            else:
+                                probs["move_forward"] = 0.9; hold = 16
+                                reason = "nav: stuck -> pivot step"
                         elif s >= 6:
                             # sweep: USE / RIDE forward / turn / step
                             phase = s % 4

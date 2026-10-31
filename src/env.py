@@ -75,7 +75,7 @@ def _to_player_frame(wx: float, wy: float, wz: float, px: float, py: float, angl
 class DoomEnv:
     SCENARIOS = {
         "take_cover": (os.path.join(zd.scenarios_path, "take_cover.cfg"), 350),
-        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 6300),  # 3min: full traverse + fights
+        "deadly_corridor": (os.path.join(zd.scenarios_path, "deadly_corridor.cfg"), 9000),  # 4.3min: full traverse
     }
 
     def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None,
@@ -111,6 +111,7 @@ class DoomEnv:
         self.nav_goal = None
         self._spawn_cell = None
         self._wp_i = 0
+        self._floor_cache = None
         self._nav_age = 999
         self._prev_hits = 0.0
 
@@ -130,6 +131,12 @@ class DoomEnv:
         self._nav_age += 1
         if self.nav is None or self._nav_age >= 20:
             self.nav = NavMap(st.sectors)
+            # floor heights are static per map: compute once, reuse
+            if self._floor_cache is None:
+                self.nav.set_floors(st.sectors)
+                self._floor_cache = self.nav.floor
+            else:
+                self.nav.floor = self._floor_cache
             self._nav_age = 0
         # advance to the first waypoint not yet reached (150-unit radius)
         if not hasattr(self, "_wp_i"):

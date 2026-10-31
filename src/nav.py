@@ -107,6 +107,34 @@ class NavMap:
     def world(self, cx, cy):
         return (self.x0 + (cx + 0.5) * CELL, self.y0 + (cy + 0.5) * CELL)
 
+    def set_floors(self, sectors):
+        """Per-cell floor height via even-odd ray casting over sector edges.
+        Enables height-aware pathing: no 'free' edge may jump >24 units."""
+        self.floor = [[None] * self.w for _ in range(self.h)]
+        edges = []  # (x1,y1,x2,y2, floor_height)
+        for s in sectors:
+            for ln in s.lines:
+                edges.append((ln.x1, ln.y1, ln.x2, ln.y2, s.floor_height))
+        for cy in range(self.h):
+            wy = self.y0 + (cy + 0.5) * CELL
+            for cx in range(self.w):
+                if self.wall[cy][cx]:
+                    continue
+                wx = self.x0 + (cx + 0.5) * CELL
+                # find the sector containing this point (even-odd per sector)
+                best = None
+                for s in sectors:
+                    inside = False
+                    for ln in s.lines:
+                        x1, y1, x2, y2 = ln.x1, ln.y1, ln.x2, ln.y2
+                        if ((y1 > wy) != (y2 > wy)) and \
+                           (wx < (x2 - x1) * (wy - y1) / (y2 - y1) + x1):
+                            inside = not inside
+                    if inside:
+                        best = s.floor_height
+                        break
+                self.floor[cy][cx] = best
+
     def free(self, c):
         cx, cy = c
         return 0 <= cx < self.w and 0 <= cy < self.h and not self.wall[cy][cx]
@@ -190,6 +218,12 @@ class NavMap:
                     continue
                 if dx and dy and (not self.free((cur[0] + dx, cur[1])) or not self.free((cur[0], cur[1] + dy))):
                     continue
+                # height-aware: forbid edges that jump more than a step-up
+                fl = getattr(self, "floor", None)
+                if fl is not None:
+                    fa, fb = fl[cur[1]][cur[0]], fl[n[1]][n[0]]
+                    if fa is not None and fb is not None and abs(fa - fb) > 24:
+                        continue
                 ng = gs[cur] + (1.41 if dx and dy else 1) + self._wall_pen(n)
                 if n in gs and ng >= gs[n]:
                     continue

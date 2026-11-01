@@ -110,7 +110,7 @@ class ReflexSpine:
                     probs["move_forward"] = 0.8
                     reason = f"glass? {target.name} d={dist:.0f}: 18 shots no kill, ignore"
                     target = None
-                elif dist < 500 and self.rng.random() < 0.3:
+                elif dist < 500 and self.rng.random() < 0.35:
                     # strafe-dodge while trading shots: barons telegraph fireballs
                     side = "move_left" if self.rng.random() < 0.5 else "move_right"
                     probs[side] = 0.8; probs["attack"] = 0.5

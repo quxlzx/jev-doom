@@ -109,11 +109,33 @@ take_cover (skill 4, 5 episodes): random 0 kills, heuristic+rule 3,
   its own teacher (4 kills vs 17). Fix the teacher, then distill.
 - Episode variance is huge (±4-5 kills); keep seeds fixed and N >= 10.
 
-## Status / roadmap
+## Status / archived
 
-- [x] take_cover + deadly_corridor, typed state, reflex spine, rule + LLM brain
-- [x] grammar-constrained open-model spine with calibrated logprob confidence
-- [x] map navigator (sectors -> grid -> A*), door/step/stair handling
-- [x] 6 rounds of DAgger + LoRA training on 3 GPUs
-- [ ] first deadly_corridor exit (last mile: threading the demon-pit ledges)
-- [ ] skill climb 1 -> 4
+This project is archived on a high note: the agent went from catatonic at
+spawn to fighting through E1M1's full gauntlet — door, demon courtyard,
+barons — with the champion (R9) at **41 kills / 2 deaths per 10 episodes**,
+reaching within ~400 units of the exit teleporter. The last mile (threading
+the pit-rim ledges into the exit corridor) resisted six final experiments
+and remains unsolved; the honest write-up above documents why.
+
+### Champion highlight reels
+
+- `media/r9_best.mp4` — R9's best run: clears the door, fights the
+  corridor gauntlet, works the courtyard.
+- `media/r9_fight.mp4` — close-quarters: sweep-fire vs Zombiemen,
+  strafe-dodging, the pit-rim standoff.
+
+### Final scoreboard (deadly_corridor skill 1, 10 episodes unless noted)
+
+| Agent | Wins | Kills | Deaths |
+|---|---|---|---|
+| Random | 0 | 0 | ~10 |
+| Heuristic spine + rule brain (early) | 0 | 3 | 1 |
+| + Qwen3-1.7B grammar spine (take_cover era) | 0 | 4 | 1 |
+| + Qwen3-8B brain (take_cover era) | 0 | 6 | 1 |
+| R2 champion (take_cover) | 0 | 30 / 20eps | — |
+| R7 (first corridor-trained) | 0 | 18 | 4 |
+| **R9 champion (349k baron-era demos)** | 0 | **41** | 2 |
+| R10 1.7B / 4B (passive-era demos) | 0 | 6 / 10 | 0 |
+
+Thank you to the little GPUs that could.

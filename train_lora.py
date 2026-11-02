@@ -19,7 +19,7 @@ import os as _os
 _D = _os.environ.get("JEVDOOM_DATA",
     r"D:\doomsrv" if _os.name == "nt" else _os.path.expanduser("~/doomsrv"))
 CORPUS = _os.environ.get("JEVDOOM_CORPUS", _D + "/corpus2.jsonl")
-BASE = _D + "/Qwen3-1.7B-hf"
+BASE = _os.environ.get("JEVDOOM_BASE", _D + "/Qwen3-1.7B-hf")
 OUT = _D + "/spine-lora"
 MAX_LEN = 384
 SUBSAMPLE = int(os.environ.get("SUBSAMPLE", "40000"))
@@ -83,9 +83,21 @@ def main():
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        BASE, torch_dtype=torch.bfloat16, device_map={"": 0},
-        attn_implementation="sdpa")
+    if _os.environ.get("JEVDOOM_QLORA") == "1":
+        # 4B on 8-12GB cards: 4-bit NF4 base, LoRA on top (QLoRA)
+        from transformers import BitsAndBytesConfig
+        from peft import prepare_model_for_kbit_training
+        model = AutoModelForCausalLM.from_pretrained(
+            BASE, torch_dtype=torch.bfloat16, device_map={"": 0},
+            attn_implementation="sdpa",
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True))
+        model = prepare_model_for_kbit_training(model)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            BASE, torch_dtype=torch.bfloat16, device_map={"": 0},
+            attn_implementation="sdpa")
     lora = LoraConfig(
         task_type=TaskType.CAUSAL_LM, r=16, lora_alpha=32, lora_dropout=0.05,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj",

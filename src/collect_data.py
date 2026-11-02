@@ -26,6 +26,12 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
     goal = brain.think(env.perceive())
     g = env.g
     samples = []
+    # room-clear tracking: "room" = 256-unit map block. Track which monster
+    # entity ids were SEEN while in a block, and kills credited to that block.
+    # If kills >= seen (>=2), the block was CLEARED -> big weight bonus there.
+    seen_ids = {}     # block -> set(entity ids)
+    block_kills = {}  # block -> kills credited
+    prev_kills = 0
     while not g.is_episode_finished():
         ws = env.perceive()
         if g.get_episode_time() > env.timeout:
@@ -61,9 +67,21 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
         # build the SAME prompt the ModelSpine would show
         if model_spine is not None:
             prompt = model_spine.build_prompt(ws, goal, h, order=shuffled)
+        blk = (int(ws.px // 256), int(ws.py // 256))
         if prompt is not None:
-            samples.append((prompt, pick + 1, {"stance": goal.get("stance")}))
+            samples.append((prompt, pick + 1, {"stance": goal.get("stance"),
+                                               "blk": blk}))
+        for m in ws.monsters:
+            seen_ids.setdefault(blk, set()).add(m.id)
         r, over = env.step(exec_action, tics=hold)
+        # credit kills to the block the agent stood in when they happened
+        try:
+            k_now = g.get_game_variable(GV.KILLCOUNT)
+        except Exception:
+            k_now = prev_kills
+        if k_now > prev_kills:
+            block_kills[blk] = block_kills.get(blk, 0) + (k_now - prev_kills)
+        prev_kills = k_now
         if over:
             break
     from env import GV
@@ -72,7 +90,9 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
         health = g.get_game_variable(GV.HEALTH)
     except Exception:
         kills, health = 0, 0
-    return samples, kills, health
+    cleared = {b for b, ids in seen_ids.items()
+               if len(ids) >= 2 and block_kills.get(b, 0) >= len(ids)}
+    return samples, kills, health, cleared
 
 
 def main():
@@ -92,13 +112,18 @@ def main():
     with open(a.out, "w") as f:
       for ep in range(a.episodes):
         try:
-            samples, kills, health = run_one(env, spine, RuleBrain, rng, ms, a.epsilon)
-            # trajectory quality gate: keep episodes that engaged
+            samples, kills, health, cleared = run_one(env, spine, RuleBrain, rng, ms, a.epsilon)
+            died = 1 if health <= 0 else 0
+            # user-shaped credit: reward kills heavily, punish death lightly,
+            # bonus heavily for clearing a room of enemies
+            base = 1.0 + 0.6 * kills - 0.4 * died
             for prompt, label, meta in samples:
-                # outcome filter: keep exploratory picks only from winning episodes
+                # outcome filter: keep exploratory picks only from engaging episodes
                 if kills == 0 and label != 1:
                     continue
-                weight = 1.0 if kills > 0 else 0.25
+                blk = tuple(meta.get("blk", ()))
+                weight = base * (2.5 if blk in cleared else 1.0)
+                meta.pop("blk", None)
                 f.write(json.dumps({"prompt": prompt,
                                     "completion": f"[{label}]",
                                     "meta": {**meta, "ep": ep, "kills": kills,

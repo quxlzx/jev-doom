@@ -15,9 +15,12 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments,
 from peft import LoraConfig, get_peft_model, TaskType
 
 # memory plan: run with CUDA_VISIBLE_DEVICES=2 (RTX 3060 12GB)
-CORPUS = r"D:\doomsrv\corpus2.jsonl"
-BASE = r"D:\doomsrv\Qwen3-1.7B-hf"
-OUT = r"D:\doomsrv\spine-lora"
+import os as _os
+_D = _os.environ.get("JEVDOOM_DATA",
+    r"D:\doomsrv" if _os.name == "nt" else _os.path.expanduser("~/doomsrv"))
+CORPUS = _os.environ.get("JEVDOOM_CORPUS", _D + "/corpus2.jsonl")
+BASE = _D + "/Qwen3-1.7B-hf"
+OUT = _D + "/spine-lora"
 MAX_LEN = 384
 SUBSAMPLE = int(os.environ.get("SUBSAMPLE", "40000"))
 SEED = 13

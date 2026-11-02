@@ -9,9 +9,12 @@ from peft import PeftModel
 from peft.utils import get_peft_model_state_dict, set_peft_model_state_dict
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-BASE = r"D:\doomsrv\Qwen3-1.7B-hf"
-SHARDS = [rf"D:\doomsrv\spine-lora-s{i}" for i in range(3)]
-OUT = r"D:\doomsrv\spine-lora-merged"
+import os as _os
+_D = _os.environ.get("JEVDOOM_DATA",
+    r"D:\doomsrv" if _os.name == "nt" else _os.path.expanduser("~/doomsrv"))
+BASE = _D + "/Qwen3-1.7B-hf"
+SHARDS = [f"{_D}/spine-lora-s{i}" for i in range(3)]
+OUT = _D + "/spine-lora-merged"
 
 def main():
     sds = []

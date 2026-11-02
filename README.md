@@ -74,6 +74,13 @@ export JEVDOOM_BRAIN_MODEL=qwen3-8b
 | reflex spine + map, session end | 0 | 17 | 2 |
 | R7 spine (corridor-trained, 81k demos) | 0 | 18 | 4 |
 | **R9 spine (baron-era demos, Linux, 349k)** | 0 | **41** | 2 |
+| R10 spine 1.7B (passive-era demos, 162k) | 0 | 6 | 0 |
+| R10 spine **4B** QLoRA (same demos) | 0 | 10 | 0 |
+
+**Scaling lesson (R10):** 4B vs 1.7B on identical demos moved the
+needle 6→10 kills — but both trailed the 1.7B R9's 41, which was
+trained on *different* (more aggressive) demos. The training data,
+not the spine size, is the binding constraint.
 
 take_cover (skill 4, 5 episodes): random 0 kills, heuristic+rule 3,
 1.7B spine+rule 4, 1.7B spine+8B brain 6.

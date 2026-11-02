@@ -51,6 +51,7 @@ class WorldState:
     deaths: float
     hits_taken: float
     nav_bearing: float | None = None
+    nav_next_bearing: float | None = None  # raw next A* cell (no smoothing)
     nav_dist: float = 0.0
     px: float = 0.0
     py: float = 0.0
@@ -152,13 +153,22 @@ class DoomEnv:
             self.nav._clear_disk(start)
         gcell = self.nav.cell(wx, wy)
         path = self.nav.astar(start, gcell)
+        next_brg = None
         if path and len(path) >= 2:
             _, bearing = self.nav.next_waypoint((px, py), angle, path)
+            # raw next-cell bearing: the smoothed waypoint clips corners and
+            # points into pinch walls (observed: 100+ oscill-sweep decisions
+            # at the pit-rim wall (1760,-773)); the raw next A* cell never
+            # cuts a corner.
+            nx, ny = self.nav.world(*path[1])
+            next_brg = math.degrees(math.atan2(ny - py, nx - px)) - angle
+            while next_brg > 180: next_brg -= 360
+            while next_brg < -180: next_brg += 360
         else:
             bearing = math.degrees(math.atan2(wy - py, wx - px)) - angle
             while bearing > 180: bearing -= 360
             while bearing < -180: bearing += 360
-        return bearing, math.hypot(ex - px, ey - py)
+        return bearing, math.hypot(ex - px, ey - py), next_brg
 
     def reset(self, recording_file: str | None = None) -> None:
         try:
@@ -177,7 +187,7 @@ class DoomEnv:
         px = gv(GV.POSITION_X)
         py = gv(GV.POSITION_Y)
         ang = gv(GV.ANGLE)
-        nb, nd = self._update_nav(st, px, py, ang)
+        nb, nd, nnb = self._update_nav(st, px, py, ang)
         monsters, pickups = [], []
         for o in st.objects:
             if o.category.lower() == "monster":
@@ -205,7 +215,7 @@ class DoomEnv:
             kills=gv(GV.KILLCOUNT),
             deaths=gv(GV.DEATHCOUNT),
             hits_taken=gv(GV.HITS_TAKEN),
-            nav_bearing=nb, nav_dist=nd,
+            nav_bearing=nb, nav_next_bearing=nnb, nav_dist=nd,
             px=px, py=py,
             monsters=monsters,
             visible=visible,

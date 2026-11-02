@@ -109,10 +109,11 @@ class ReflexSpine:
             stance = "defensive"
 
         def turn_hold(bearing: float) -> int:
-            # measured physics: 7-tic windup THEN ~4.5deg/tic. Undershoot by
-            # design (gain 0.75): iterating short turns converges; full-authority
-            # turns overshoot a strafing target and oscillate.
-            return max(9, min(48, 7 + int(abs(bearing) * 0.75 / 4.5) + 2))
+            # RE-measured physics: 7-tic windup then ~7deg/tic (14-tic hold
+            # rotated 49deg; the old 4.5deg/tic model undershot the hold and
+            # the windup made it overshoot in practice -> sign-flip limit
+            # cycles). Undershoot gain 0.85: iterate short turns to converge.
+            return max(9, min(48, 7 + int(abs(bearing) * 0.85 / 7.0) + 1))
 
         # MISSION PRIORITY: while navigating with the exit far away, ignore
         # distant monsters unless they are actually hitting us — running past
@@ -228,31 +229,40 @@ class ReflexSpine:
                     # (a band-aid for target-flip oscillation, which target-
                     # lock hysteresis already fixes) caused turn limit-cycles:
                     # shrunk holds rotate ~0deg and the bearing never converges.
-                    hold = max(9, min(48, 7 + int(abs(b) / 4.5) + 2))
+                    hold = max(9, min(48, 7 + int(abs(b) * 0.85 / 7.0) + 1))
                     self._turn_shrink = hold
                     self._last_nav_b = b
                     if self._stuck:
                         self._blocked_streak += 1
                         s = self._blocked_streak
                         phase = s % 4
+                        nnb = ws.nav_next_bearing
                         if phase == 0 and not near_spawn:
                             probs["use"] = 0.9; hold = 5
-                            reason = "nav: oscill sweep -> USE"
-                        elif phase == 1:
+                            reason = "nav: path-follow -> USE door"
+                        elif phase == 1 and nnb is not None and abs(nnb) < 15:
                             # doors rise slowly and auto-close: press USE then
                             # immediately ride forward through while it is open
                             probs["move_forward"] = 0.9; hold = 30
-                            reason = "nav: oscill sweep -> ride door open"
-                        elif phase == 3:
-                            # strafe around convex corners: forward+turn never
-                            # clears them; lateral movement does
-                            if abs(b) > 50:
-                                side = "move_left" if b > 0 else "move_right"
-                                probs[side] = 0.9; hold = 14
-                                reason = "nav: oscill sweep -> strafe to path"
-                            else:
+                            reason = "nav: path-follow -> ride door open"
+                        elif nnb is not None:
+                            # DETERMINISTIC path-follow: aim the raw next A*
+                            # cell instead of random sweeps. The smoothed
+                            # bearing pointed into the pinch wall and the
+                            # sweeps just jittered there for 100+ decisions.
+                            if abs(nnb) < 22:
+                                # deadband 22 (was 15): a 16deg error sat in
+                                # the gap between gate and min hold, and a
+                                # 9-tic hold is pure windup = zero rotation,
+                                # deadlock at (1181,163). Wall-slide handles
+                                # the residual angle.
                                 probs["move_forward"] = 0.9; hold = 14
-                                reason = "nav: oscill sweep -> step"
+                                reason = f"nav: path-follow -> step (next {nnb:.0f})"
+                            else:
+                                turn = "turn_left" if nnb > 0 else "turn_right"
+                                probs[turn] = 0.9
+                                hold = max(11, min(48, 7 + int(abs(nnb) * 0.85 / 7.0) + 1))
+                                reason = f"nav: path-follow -> turn (next {nnb:.0f})"
                         elif phase == 0:
                             probs["turn_right"] = 0.9; hold = 20
                             reason = "nav: oscill near spawn -> hug (no USE: teleport)"
@@ -275,7 +285,17 @@ class ReflexSpine:
                     if blocked:
                         self._blocked_streak += 1
                         s = self._blocked_streak
-                        if s >= 20:
+                        nnb = ws.nav_next_bearing
+                        if s >= 20 and nnb is not None and abs(nnb) > 15:
+                            # PATH-FOLLOW overrides pivot scans: the scan
+                            # turned right while the path-follow branch turned
+                            # left -> perfect 2-cycle limit loop at the first
+                            # door (84 deg each way, 0 progress, forever).
+                            turn = "turn_left" if nnb > 0 else "turn_right"
+                            probs[turn] = 0.9
+                            hold = max(9, min(48, 7 + int(abs(nnb) * 0.85 / 7.0) + 1))
+                            reason = f"nav: path-follow -> turn (next {nnb:.0f})"
+                        elif s >= 20:
                             # pivot AND step: a sweep that only spins never
                             # escapes; alternate scan / advance
                             if s % 2 == 0:

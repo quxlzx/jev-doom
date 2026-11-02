@@ -42,6 +42,17 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
             action = rng.choice(shuffled)
         else:
             action = h.action
+        # compound actions (["move_forward","attack"]): execute the combo but
+        # LABEL with the component the candidate list contains (attack first:
+        # it is the intentional part)
+        exec_action = action
+        if isinstance(action, (list, tuple)):
+            for comp in reversed(action):
+                if comp in shuffled:
+                    action = comp
+                    break
+            else:
+                action = action[0]
         pick = shuffled.index(action)
         # hold must match the ACTUAL action (turns need windup+rate)
         from spine import bearing_deg
@@ -52,7 +63,7 @@ def run_one(env, spine, brain, rng, model_spine=None, epsilon=0.0):
             prompt = model_spine.build_prompt(ws, goal, h, order=shuffled)
         if prompt is not None:
             samples.append((prompt, pick + 1, {"stance": goal.get("stance")}))
-        r, over = env.step(action, tics=hold)
+        r, over = env.step(exec_action, tics=hold)
         if over:
             break
     from env import GV

@@ -12,9 +12,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import os as _os
 _D = _os.environ.get("JEVDOOM_DATA",
     r"D:\doomsrv" if _os.name == "nt" else _os.path.expanduser("~/doomsrv"))
-BASE = _D + "/Qwen3-1.7B-hf"
-SHARDS = [f"{_D}/spine-lora-s{i}" for i in range(3)]
-OUT = _D + "/spine-lora-merged"
+BASE = _os.environ.get("JEVDOOM_BASE", _D + "/Qwen3-1.7B-hf")
+_P = _os.environ.get("JEVDOOM_SHARD_PREFIX", _D + "/spine-lora")
+SHARDS = [f"{_P}-s{i}" for i in range(3)]
+OUT = _os.environ.get("JEVDOOM_MERGED", _D + "/spine-lora-merged")
 
 def main():
     sds = []

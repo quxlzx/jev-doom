@@ -14,7 +14,7 @@ _D = _os.environ.get("JEVDOOM_DATA",
     r"D:\doomsrv" if _os.name == "nt" else _os.path.expanduser("~/doomsrv"))
 BASE = _os.environ.get("JEVDOOM_BASE", _D + "/Qwen3-1.7B-hf")
 _P = _os.environ.get("JEVDOOM_SHARD_PREFIX", _D + "/spine-lora")
-SHARDS = [f"{_P}-s{i}" for i in range(3)]
+SHARDS = [f"{_P}-s{i}" for i in range(int(_os.environ.get("JEVDOOM_NSHARDS", "3")))]
 OUT = _os.environ.get("JEVDOOM_MERGED", _D + "/spine-lora-merged")
 
 def main():

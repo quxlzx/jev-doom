@@ -176,7 +176,7 @@ class ReflexSpine:
                 # distant zombies -> DRY before the shotgun pickup, and the
                 # old (aim-poor) policy's accidental conservation is why it
                 # out-killed this one 18 vs 5. Sweep only at close range.
-                if dist < 150 and ws.ammo > 0 and ws.attack_ready:
+                if dist < 300 and ws.ammo > 0 and ws.attack_ready:
                     # sweep-fire: hold attack WHILE turning — the sweep passes
                     # through alignment and the pistol fires on it. Waiting for
                     # perfect alignment vs a moving target = never firing.
@@ -476,7 +476,11 @@ class ReflexSpine:
         # breaks the pinch deadlock (turn-to-aim in a chokepoint = pinned).
         if (top == "move_forward" and ws.ammo > 0 and ws.attack_ready
                 and target is not None and abs(bearing_deg(target)) < 30
+                and target.dist > 250
                 and ws.nav_bearing is not None and abs(ws.nav_bearing) < 25):
+            # move+fire only vs DISTANT targets: running past a close monster
+            # is how the route-runner policy skipped rooms (user: "it skips
+            # enemies in the rooms"). Close targets: stand and clear.
             top = ["move_forward", "attack"]
         elif (top == "attack" and target is not None and target.dist > 250
               and ws.nav_bearing is not None and abs(ws.nav_bearing) < 25):

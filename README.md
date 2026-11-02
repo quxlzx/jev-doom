@@ -82,6 +82,14 @@ needle 6→10 kills — but both trailed the 1.7B R9's 41, which was
 trained on *different* (more aggressive) demos. The training data,
 not the spine size, is the binding constraint.
 
+**Coupling lesson (R10+nav):** swapping the heuristic's candidate
+menu under a trained spine destroys it: R9 with path-follow nav
+scored 6/15 kills, and even a deadlock-only override scored 2/15.
+The champion is a *pair* — (heuristic menu, trained picker) — and
+they must be retrained together. The old policy's "flawed" stuck
+sweeps were also its exploration: they wandered the map and found
+monsters. Efficient routing found fewer fights.
+
 take_cover (skill 4, 5 episodes): random 0 kills, heuristic+rule 3,
 1.7B spine+rule 4, 1.7B spine+8B brain 6.
 

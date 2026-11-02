@@ -127,7 +127,7 @@ class DoomEnv:
         # wall; the clearance-weighted route to (1560,-650) curves south of
         # the pit and threads the pinch cleanly on its own.
         WAYPOINTS = [(688, -192), (1560, -650), (1560, -900),
-                     (1720, -1190)]
+                     (1720, -1190)]  # arrival radius 250 (was 150: orbited)
         self._nav_age += 1
         if self.nav is None or self._nav_age >= 20:
             self.nav = NavMap(st.sectors)
@@ -143,7 +143,7 @@ class DoomEnv:
             self._wp_i = 0
         while (self._wp_i < len(WAYPOINTS) - 1 and
                (px - WAYPOINTS[self._wp_i][0])**2 +
-               (py - WAYPOINTS[self._wp_i][1])**2 < 150**2):
+               (py - WAYPOINTS[self._wp_i][1])**2 < 250**2):
             self._wp_i += 1
         wx, wy = WAYPOINTS[self._wp_i]
         ex, ey = WAYPOINTS[-1]

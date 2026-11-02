@@ -92,6 +92,14 @@ class ReflexSpine:
             # no-windup model overshot ~2x, causing acquire oscillation.
             return max(9, min(48, 7 + int(abs(bearing) / 4.5) + 2))
 
+        # MISSION PRIORITY: while navigating with the exit far away, ignore
+        # distant monsters unless they are actually hitting us — running past
+        # Zombiemen beats stopping to fight every one of them (traces showed
+        # the agent wandering north into side halls chasing kills).
+        # NOTE: tried a hard "run past distant monsters" mission-priority
+        # gate — it raised kills/depth but the agent stopped engaging at all
+        # and died to crossfire or wandered. Reverted; R9's trained policy
+        # handles engagement better than this heuristic rule.
         if target is not None:
             b = bearing_deg(target)
             dist = target.dist

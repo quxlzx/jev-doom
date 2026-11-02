@@ -27,25 +27,6 @@ class Decision:
         return self.confidence < 0.45
 
 
-def _pred_bearing(self, ws, e, b_raw):
-        """Predicted bearing = raw + bearing_rate * lead. Lead scales with
-        distance (bullets + reaction). Clamped so a teleport can't wreck aim."""
-        prev = self._bear_hist.get(e.id)
-        rate = self._bear_rate.get(e.id, 0.0)
-        if prev is not None:
-            pb, pt = prev
-            dt = ws.tic - pt
-            if 0 < dt < 60:
-                db = b_raw - pb
-                db = (db + 180) % 360 - 180
-                inst = max(-3.0, min(3.0, db / dt))
-                rate = 0.6 * rate + 0.4 * inst   # EMA: zigzag flips raw rate
-        self._bear_hist[e.id] = (b_raw, ws.tic)
-        self._bear_rate[e.id] = rate
-        lead = min(6.0, max(3.0, e.dist / 60.0))
-        return b_raw + rate * lead, rate
-
-
 def bearing_deg(e) -> float:
     """Bearing to a player-frame entity (x=forward, y=left), in degrees."""
     return math.degrees(math.atan2(e.y, e.x))
@@ -57,8 +38,6 @@ class ReflexSpine:
     def __init__(self, rng: random.Random | None = None):
         self.rng = rng or random.Random()
         self._lock_id = None       # orientation target hysteresis: stop target-flip
-        self._bear_hist = {}       # entity id -> (bearing, tic): bearing-rate for lead aim
-        self._bear_rate = {}       # entity id -> EMA bearing rate
         self._lock_age = 999
         self._last_pos = None      # blocked detection for wall-following explore
         self._pos_hist = []        # net-displacement stuck detector (wall sliding)
@@ -109,11 +88,9 @@ class ReflexSpine:
             stance = "defensive"
 
         def turn_hold(bearing: float) -> int:
-            # RE-measured physics: 7-tic windup then ~7deg/tic (14-tic hold
-            # rotated 49deg; the old 4.5deg/tic model undershot the hold and
-            # the windup made it overshoot in practice -> sign-flip limit
-            # cycles). Undershoot gain 0.85: iterate short turns to converge.
-            return max(9, min(48, 7 + int(abs(bearing) * 0.85 / 7.0) + 1))
+            # measured physics: 7-tic windup THEN ~4.5deg/tic. The old 3.5/tic
+            # no-windup model overshot ~2x, causing acquire oscillation.
+            return max(9, min(48, 7 + int(abs(bearing) / 4.5) + 2))
 
         # MISSION PRIORITY: while navigating with the exit far away, ignore
         # distant monsters unless they are actually hitting us — running past
@@ -123,21 +100,10 @@ class ReflexSpine:
         # gate — it raised kills/depth but the agent stopped engaging at all
         # and died to crossfire or wandered. Reverted; R9's trained policy
         # handles engagement better than this heuristic rule.
-        sweep_turn = None
         if target is not None:
-            b_raw = bearing_deg(target)
-            # LEAD AIM: strafing monsters make the raw bearing swing +/-30deg
-            # per decision; the turn controller overshoots chasing it and the
-            # fire gate never opens (observed: 1 shot in 40 decisions while a
-            # Zombieman at 40u chewed us down). Track bearing rate per entity
-            # and aim where it WILL be, and damp turns to undershoot.
-            b, brate = _pred_bearing(self, ws, target, b_raw)
+            b = bearing_deg(target)
             dist = target.dist
-            # Fire gate scales with hitbox angular width: a 40u-wide monster at
-            # 100u spans +/-22deg. The old fixed +/-10 gate never opened vs a
-            # zigzagging target: agent spun, never fired, stuck-detector dragged
-            # it away -> "skips enemies in rooms" (user-observed).
-            aligned = abs(b) < max(8.0, math.degrees(math.atan2(40.0, max(dist, 1.0))))
+            aligned = abs(b) < 6.0
 
             if aligned and ws.attack_ready and dist < 1600 and ws.ammo > 0:
                 # glass detection: same target, many shots, no progress
@@ -172,19 +138,7 @@ class ReflexSpine:
                 turn = "turn_left" if b > 0 else "turn_right"
                 probs[turn] = 0.9
                 hold = turn_hold(b)
-                # ammo economics: sweep-fire burns the 50-round pistol on
-                # distant zombies -> DRY before the shotgun pickup, and the
-                # old (aim-poor) policy's accidental conservation is why it
-                # out-killed this one 18 vs 5. Sweep only at close range.
-                if dist < 300 and ws.ammo > 0 and ws.attack_ready:
-                    # sweep-fire: hold attack WHILE turning — the sweep passes
-                    # through alignment and the pistol fires on it. Waiting for
-                    # perfect alignment vs a moving target = never firing.
-                    sweep_turn = turn
-                    probs["attack"] = 0.95
-                    reason = f"sweep-fire {target.name} b={b:.0f} d={dist:.0f}"
-                else:
-                    reason = f"acquire {target.name} bearing={b:.0f}({b_raw:.0f}+{brate:.1f}/t) d={dist:.0f}"
+                reason = f"acquire {target.name} bearing={b:.0f} d={dist:.0f}"
         else:
             # no monster on screen: use the world map to orient, then close
             # distance. Navigation is stance-INDEPENDENT: the brain's mood
@@ -229,7 +183,7 @@ class ReflexSpine:
                     # (a band-aid for target-flip oscillation, which target-
                     # lock hysteresis already fixes) caused turn limit-cycles:
                     # shrunk holds rotate ~0deg and the bearing never converges.
-                    hold = max(9, min(48, 7 + int(abs(b) * 0.85 / 7.0) + 1))
+                    hold = max(9, min(48, 7 + int(abs(b) / 4.5) + 2))
                     self._turn_shrink = hold
                     self._last_nav_b = b
                     if self._stuck:
@@ -237,32 +191,34 @@ class ReflexSpine:
                         s = self._blocked_streak
                         phase = s % 4
                         nnb = ws.nav_next_bearing
-                        if phase == 0 and not near_spawn:
+                        if s >= 20 and nnb is not None and abs(nnb) > 22:
+                            # deep deadlock only: raw next-A*-cell aim threads
+                            # pinch walls the random sweep jitters against
+                            turn = "turn_left" if nnb > 0 else "turn_right"
+                            probs[turn] = 0.9
+                            hold = max(11, min(48, 7 + int(abs(nnb) * 0.85 / 7.0) + 1))
+                            reason = f"nav: deep-stuck path-follow (next {nnb:.0f})"
+                        elif s >= 20 and nnb is not None:
+                            probs["move_forward"] = 0.9; hold = 16
+                            reason = f"nav: deep-stuck step (next {nnb:.0f})"
+                        elif phase == 0 and not near_spawn:
                             probs["use"] = 0.9; hold = 5
-                            reason = "nav: path-follow -> USE door"
-                        elif phase == 1 and nnb is not None and abs(nnb) < 15:
+                            reason = "nav: oscill sweep -> USE"
+                        elif phase == 1:
                             # doors rise slowly and auto-close: press USE then
                             # immediately ride forward through while it is open
                             probs["move_forward"] = 0.9; hold = 30
-                            reason = "nav: path-follow -> ride door open"
-                        elif nnb is not None:
-                            # DETERMINISTIC path-follow: aim the raw next A*
-                            # cell instead of random sweeps. The smoothed
-                            # bearing pointed into the pinch wall and the
-                            # sweeps just jittered there for 100+ decisions.
-                            if abs(nnb) < 22:
-                                # deadband 22 (was 15): a 16deg error sat in
-                                # the gap between gate and min hold, and a
-                                # 9-tic hold is pure windup = zero rotation,
-                                # deadlock at (1181,163). Wall-slide handles
-                                # the residual angle.
-                                probs["move_forward"] = 0.9; hold = 14
-                                reason = f"nav: path-follow -> step (next {nnb:.0f})"
+                            reason = "nav: oscill sweep -> ride door open"
+                        elif phase == 3:
+                            # strafe around convex corners: forward+turn never
+                            # clears them; lateral movement does
+                            if abs(b) > 50:
+                                side = "move_left" if b > 0 else "move_right"
+                                probs[side] = 0.9; hold = 14
+                                reason = "nav: oscill sweep -> strafe to path"
                             else:
-                                turn = "turn_left" if nnb > 0 else "turn_right"
-                                probs[turn] = 0.9
-                                hold = max(11, min(48, 7 + int(abs(nnb) * 0.85 / 7.0) + 1))
-                                reason = f"nav: path-follow -> turn (next {nnb:.0f})"
+                                probs["move_forward"] = 0.9; hold = 14
+                                reason = "nav: oscill sweep -> step"
                         elif phase == 0:
                             probs["turn_right"] = 0.9; hold = 20
                             reason = "nav: oscill near spawn -> hug (no USE: teleport)"
@@ -285,16 +241,15 @@ class ReflexSpine:
                     if blocked:
                         self._blocked_streak += 1
                         s = self._blocked_streak
-                        nnb = ws.nav_next_bearing
-                        if s >= 20 and nnb is not None and abs(nnb) > 15:
-                            # PATH-FOLLOW overrides pivot scans: the scan
-                            # turned right while the path-follow branch turned
-                            # left -> perfect 2-cycle limit loop at the first
-                            # door (84 deg each way, 0 progress, forever).
+                        if s >= 20 and ws.nav_next_bearing is not None and abs(ws.nav_next_bearing) > 22:
+                            nnb = ws.nav_next_bearing
                             turn = "turn_left" if nnb > 0 else "turn_right"
                             probs[turn] = 0.9
-                            hold = max(9, min(48, 7 + int(abs(nnb) * 0.85 / 7.0) + 1))
-                            reason = f"nav: path-follow -> turn (next {nnb:.0f})"
+                            hold = max(11, min(48, 7 + int(abs(nnb) * 0.85 / 7.0) + 1))
+                            reason = f"nav: deep-stuck path-follow (next {nnb:.0f})"
+                        elif s >= 20 and ws.nav_next_bearing is not None:
+                            probs["move_forward"] = 0.9; hold = 16
+                            reason = f"nav: deep-stuck step (next {ws.nav_next_bearing:.0f})"
                         elif s >= 20:
                             # pivot AND step: a sweep that only spins never
                             # escapes; alternate scan / advance
@@ -470,17 +425,11 @@ class ReflexSpine:
         total = sum(probs.values()) or 1.0
         probs = {k: v / total for k, v in probs.items()}
         top = max(probs, key=probs.get)
-        if sweep_turn is not None and top == "attack":
-            top = [sweep_turn, "attack"]  # compound: turn AND shoot
         # compound action: Doom buttons are concurrent. Advance while firing
         # breaks the pinch deadlock (turn-to-aim in a chokepoint = pinned).
         if (top == "move_forward" and ws.ammo > 0 and ws.attack_ready
                 and target is not None and abs(bearing_deg(target)) < 30
-                and target.dist > 250
                 and ws.nav_bearing is not None and abs(ws.nav_bearing) < 25):
-            # move+fire only vs DISTANT targets: running past a close monster
-            # is how the route-runner policy skipped rooms (user: "it skips
-            # enemies in the rooms"). Close targets: stand and clear.
             top = ["move_forward", "attack"]
         elif (top == "attack" and target is not None and target.dist > 250
               and ws.nav_bearing is not None and abs(ws.nav_bearing) < 25):

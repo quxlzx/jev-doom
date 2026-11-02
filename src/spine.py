@@ -171,7 +171,11 @@ class ReflexSpine:
                 turn = "turn_left" if b > 0 else "turn_right"
                 probs[turn] = 0.9
                 hold = turn_hold(b)
-                if dist < 300 and ws.ammo > 0 and ws.attack_ready:
+                # ammo economics: sweep-fire burns the 50-round pistol on
+                # distant zombies -> DRY before the shotgun pickup, and the
+                # old (aim-poor) policy's accidental conservation is why it
+                # out-killed this one 18 vs 5. Sweep only at close range.
+                if dist < 150 and ws.ammo > 0 and ws.attack_ready:
                     # sweep-fire: hold attack WHILE turning — the sweep passes
                     # through alignment and the pistol fires on it. Waiting for
                     # perfect alignment vs a moving target = never firing.

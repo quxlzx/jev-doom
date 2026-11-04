@@ -1,0 +1,3 @@
+# Core agent runtime (verified on Python 3.14, Linux, vizdoom 1.3.2)
+vizdoom>=1.3,<2
+numpy

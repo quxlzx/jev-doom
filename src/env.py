@@ -80,10 +80,12 @@ class DoomEnv:
     }
 
     def __init__(self, skill: int = 4, window: bool = False, record_dir: str | None = None,
-                 scenario: str = "take_cover"):
+                 scenario: str = "take_cover", seed: int | None = None):
         self.scenario = scenario
         self.timeout = self.SCENARIOS[scenario][1]
         self.g = zd.DoomGame()
+        if seed is not None:
+            self.g.set_seed(seed)  # ViZDoom 1.3.x: fixes engine RNG (1.2.x called this set_doom_seed)
         self.g.set_doom_scenario_path(self.SCENARIOS[scenario][0])
         self.g.set_doom_map("map01")
         self.g.set_doom_skill(skill)
@@ -120,7 +122,7 @@ class DoomEnv:
         import math
         from nav import NavMap
         if self.scenario != "deadly_corridor":
-            return None, 0.0
+            return None, 0.0, None  # 3-tuple: bearing, exit-dist, next-cell bearing
         # deadly_corridor is a FIXED map whose pit bridge the sector grid
         # cannot model, so route a known waypoint chain (classic E1M1 run):
         # door -> courtyard east -> east stair head -> pit floor -> exit.

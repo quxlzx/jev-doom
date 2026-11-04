@@ -1,0 +1,9 @@
+# Training pipeline extras (train_lora.py, merge_loras.py, bake_r6.py).
+# Only needed to retrain the spine; the agent itself does not need these.
+# On NVIDIA GPUs install torch from the CUDA wheel index first, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+torch
+transformers
+peft
+datasets
+accelerate

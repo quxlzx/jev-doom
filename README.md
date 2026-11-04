@@ -12,6 +12,19 @@ world --~17Hz--> SPINE (typed reflex decisions) --> body
   escalation: low spine confidence -> interrupt brain
 ```
 
+## Reproduce in 3 commands
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd src && ../.venv/bin/python agent.py --episodes 5 --scenario take_cover --skill 4 --seed 7
+../.venv/bin/python agent.py --episodes 10 --scenario deadly_corridor --skill 1 --seed 42
+```
+
+Runs fully headless (no display, no GPU); scenarios ship inside the ViZDoom
+pip wheel, nothing to download. `--seed` fixes both the engine and spine RNG
+for reproducible comparisons. Full walkthrough, expected output, and what is
+*not* reproducible from a fresh clone: [REPRODUCING.md](REPRODUCING.md).
+
 - **Spinal cord (System One)** — `decide(world_state, goal) ->
   Decision(action, probs, confidence, hold_tics)`. Two backends:
   - `ReflexSpine`: hand-coded reflex policy (target-lock hysteresis,
@@ -50,7 +63,7 @@ world --~17Hz--> SPINE (typed reflex decisions) --> body
 ## Run
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install vizdoom numpy
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cd src && ../.venv/bin/python agent.py --episodes 5 --record
 ../.venv/bin/python agent.py --episodes 10 --scenario deadly_corridor --skill 1
 ```

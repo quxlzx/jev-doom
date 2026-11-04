@@ -100,13 +100,14 @@ def run_episode(env: DoomEnv, spine: ReflexSpine, brain, seed: int = 0,
 
 
 def main(episodes: int = 1, skill: int = 4, verbose: bool = True, record: bool = False,
-         spine_kind: str = "heur", scenario: str = "take_cover"):
-    env = DoomEnv(skill=skill, window=False, scenario=scenario, record_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "replays") if record else None)
+         spine_kind: str = "heur", scenario: str = "take_cover", seed: int | None = None):
+    env = DoomEnv(skill=skill, window=False, scenario=scenario, seed=seed, record_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "replays") if record else None)
     if spine_kind == "model":
         from spine_model import ModelSpine
         spine = ModelSpine()
     else:
-        spine = ReflexSpine()
+        import random
+        spine = ReflexSpine(rng=random.Random(seed) if seed is not None else None)
     brain = make_brain(prefer_llm=True)
     print(f"brain: {type(brain).__name__} | spine: {type(spine).__name__} | skill={skill}")
     results = []
@@ -133,5 +134,7 @@ if __name__ == "__main__":
     p.add_argument("--record", action="store_true", help="record .lmp demos to replays/")
     p.add_argument("--spine", choices=["heur", "model"], default="heur")
     p.add_argument("--scenario", choices=["take_cover", "deadly_corridor"], default="take_cover")
+    p.add_argument("--seed", type=int, default=None,
+                   help="fix ViZDoom engine RNG + spine RNG for reproducible runs")
     a = p.parse_args()
-    main(episodes=a.episodes, skill=a.skill, verbose=not a.quiet, record=a.record, spine_kind=a.spine, scenario=a.scenario)
+    main(episodes=a.episodes, skill=a.skill, verbose=not a.quiet, record=a.record, spine_kind=a.spine, scenario=a.scenario, seed=a.seed)
